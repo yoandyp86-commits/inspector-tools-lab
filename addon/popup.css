@@ -620,3 +620,17 @@ a.icon-url {
 a:hover:has(.sfir-copy-userid-icon:hover) {
   text-decoration: none;
 }
+
+/* --- Inspector Tools Lab: barra de acciones de usuario (Details/PSet/PSetG/PS/Deleg) --- */
+.sfir-user-actions.slds-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+.sfir-user-actions.slds-button-group .slds-button {
+  flex: 0 0 auto;
+  border-radius: 0.25rem;
+  margin: 0;
+}
+

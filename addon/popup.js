@@ -3861,7 +3861,7 @@ class UserDetails extends React.PureComponent {
       ),
       h(
         "div",
-        {ref: "userButtons", className: "slds-button-group justify-center"},
+        {ref: "userButtons", className: "slds-button-group justify-center sfir-user-actions"},
         h(
           "a",
           {
