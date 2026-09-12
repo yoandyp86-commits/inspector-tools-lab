@@ -1,0 +1,15 @@
+.ps-badge-group {
+  background: #eef4ff;
+  color: #0176d3;
+}
+
+.ps-badge-set {
+  background: #f3f2f2;
+  color: #514f4d;
+}
+
+.ps-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #706e6b;
+}

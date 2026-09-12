@@ -1,0 +1,92 @@
+{
+  "name": "Inspector Tools Lab",
+  "description": "Inspecciona datos y metadatos de Salesforce: permission sets y permisos de campo. Basado en Salesforce Inspector Reloaded (MIT).",
+  "version": "1.0.1",
+  "version_name": "2.0",
+  "icons": {
+    "128": "icon128.png"
+  },
+  "applications": {
+    "gecko": {
+      "id": "salesforceinspector@reloaded",
+      "strict_min_version": "60.0"
+    }
+  },
+  "permissions": [
+    "https://*.salesforce.com/*",
+    "https://*.salesforce-setup.com/*",
+    "https://*.force.com/*",
+    "https://*.cloudforce.com/*",
+    "https://*.visualforce.com/*",
+    "https://*.sfcrmapps.cn/*",
+    "https://*.sfcrmproducts.cn/*",
+    "https://*.salesforce.mil/*",
+    "https://*.force.mil/*",
+    "https://*.cloudforce.mil/*",
+    "https://*.visualforce.mil/*",
+    "https://*.crmforce.mil/*",
+    "https://*.force.com.mcas.ms/*",
+    "cookies",
+    "storage",
+    "unlimitedStorage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.salesforce.com/*",
+        "https://*.salesforce-setup.com/*",
+        "https://*.visual.force.com/*",
+        "https://*.vf.force.com/*",
+        "https://*.lightning.force.com/*",
+        "https://*.cloudforce.com/*",
+        "https://*.visualforce.com/*",
+        "https://*.sfcrmapps.cn/*",
+        "https://*.sfcrmproducts.cn/*",
+        "https://*.salesforce.mil/*",
+        "https://*.visual.force.mil/*",
+        "https://*.vf.force.mil/*",
+        "https://*.lightning.force.mil/*",
+        "https://*.cloudforce.mil/*",
+        "https://*.visualforce.mil/*",
+        "https://*.crmforce.mil/*",
+        "https://*.lightning.force.com.mcas.ms/*",
+        "https://*.builder.salesforce-experience.com/*"
+      ],
+      "all_frames": true,
+      "css": [
+        "button.css",
+        "inspect-inline.css"
+      ],
+      "js": [
+        "button.js",
+        "inspect-inline.js"
+      ]
+    }
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "web_accessible_resources": [
+    "popup.html",
+    "data-export.html",
+    "data-import.html",
+    "inspect.html",
+    "metadata-retrieve.html",
+    "metadata-retrieve-legacy.html",
+    "explore-api.html",
+    "rest-explore.html",
+    "limits.html",
+    "api-statistics.html",
+    "inject.js",
+    "field-creator.html",
+    "options.html",
+    "event-monitor.html",
+    "flow-scanner.html",
+    "permission-sets.html",
+    "field-permissions.html"
+  ],
+  "incognito": "spanning",
+  "manifest_version": 2
+}

@@ -1,0 +1,91 @@
+.sfir-full-height {
+  height: 100%;
+}
+
+#result-table {
+  height: 100%;
+}
+
+#result-table table {
+  border: none;
+}
+
+#result-table table tr td:first-child {
+  border-left: none;
+  padding-left: 8px;
+}
+
+#result-table table tr:hover>td {
+  background-color: #F3F2F2;
+}
+
+.scrolltable-scrolled {
+  position: relative;
+}
+
+.scrolltable-scrolled table {
+  border-collapse: collapse;
+  position: absolute;
+}
+
+.scrolltable-cell {
+  border: 1px solid #DDDBDA;
+  overflow: visible;
+  padding: 0 4px;
+  background-color: white;
+  white-space: pre;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.scrolltable-cell.header {
+  font-weight: 700;
+  background-color: #FAFAF9;
+  border-top: none;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+#result-table table {
+  border: none;
+}
+
+#result-table table tr td:first-child {
+  border-left: none;
+  padding-left: 8px;
+}
+
+#result-table table tr:hover>td {
+  background-color: #F3F2F2;
+}
+
+.scrolltable-scrolled {
+  position: relative;
+}
+
+.scrolltable-scrolled table {
+  border-collapse: collapse;
+  position: absolute;
+}
+
+.scrolltable-cell.header {
+  font-weight: 700;
+  background-color: #FAFAF9;
+  border-top: none;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.scrolltable-cell.skipped {
+  background-color: lightgrey;
+}
+
+.scrolltable-cell.prevent-line-wrap {
+  white-space: pre !important;
+}
+
+.pop-menu.saveOptions {
+  top: 0;
+  margin: 102px 232px 0 0;
+  z-index: 2;
+}
