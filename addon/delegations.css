@@ -1,0 +1,19 @@
+.deleg-badge-yes {
+  background: #ebf7e6;
+  color: #2e844a;
+}
+
+.deleg-badge-no {
+  background: #f3f2f2;
+  color: #514f4d;
+}
+
+.deleg-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #706e6b;
+}
+
+.deleg-filter {
+  max-width: 20rem;
+}

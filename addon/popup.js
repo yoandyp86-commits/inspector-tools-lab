@@ -3905,6 +3905,17 @@ class UserDetails extends React.PureComponent {
           },
           "PS"
         ),
+        h(
+          "a",
+          {
+            href: "delegations.html?host=" + this.props.sfHost + "&user=" + user.Id,
+            target: "_blank",
+            rel: "noopener",
+            className: "slds-button slds-button_neutral",
+            title: "View this user's delegations in a new tab",
+          },
+          "Deleg"
+        ),
         isOptionEnabled("reset-password", hideButtonsOption) && user.Id !== currentUserId
           ? h(
             "button",

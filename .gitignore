@@ -1,0 +1,10 @@
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Temporales
+estructura.txt
+*.zip
+
+# OneDrive
+*.tmp
