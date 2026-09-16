@@ -1,8 +1,8 @@
 {
   "name": "Inspector Tools Lab",
   "description": "Inspecciona datos y metadatos de Salesforce: permission sets y permisos de campo. Basado en Salesforce Inspector Reloaded (MIT).",
-  "version": "2.2",
-  "version_name": "2.1",
+   "version": "2.3",
+  "version_name": "2.3",
   "icons": {
     "16": "icon16.png",
     "32": "icon32.png",
@@ -99,7 +99,8 @@
         "debug-log.html",
         "permission-sets.html",
         "delegations.html",
-        "field-permissions.html"
+        "field-permissions.html",
+        "field-access-by-field.html"
       ],
       "matches": [
         "https://*.salesforce.com/*",

@@ -1358,12 +1358,18 @@ class AllDataBoxTools extends React.PureComponent {
     let {sfHost, linkTarget} = this.props;
     let hostArg = new URLSearchParams();
     hostArg.set("host", sfHost);
-    const tools = [
+        const tools = [
       {
         ref: "fieldPermissionsBtn",
         href: "field-permissions.html?" + hostArg,
         label: "Field Permissions by PS",
         title: "Check which fields a permission set grants read/edit access to",
+      },
+      {
+        ref: "accessByFieldBtn",
+        href: "field-access-by-field.html?" + hostArg,
+        label: "Access by Field",
+        title: "Check which profiles and permission sets grant access to a field",
       },
     ];
     return h(
