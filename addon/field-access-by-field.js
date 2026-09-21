@@ -67,15 +67,19 @@ class Model {
     this.didUpdate();
 
     const escaped = field.replace(/'/g, "\\'");
-    const soql = "SELECT Parent.Label, Parent.IsOwnedByProfile, PermissionsRead, PermissionsEdit"
+    const soql = "SELECT Parent.Label, Parent.Profile.Name, Parent.IsOwnedByProfile, PermissionsRead, PermissionsEdit"
       + " FROM FieldPermissions WHERE Field = '" + escaped + "'"
       + " ORDER BY Parent.IsOwnedByProfile DESC, PermissionsEdit DESC, Parent.Label";
     const promise = sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent(soql));
     this.spinFor("loading field access", promise, (res) => {
       this.rows = (res.records || []).map(r => {
         const isProfile = !!(r.Parent && r.Parent.IsOwnedByProfile);
+        const profileName = r.Parent && r.Parent.Profile && r.Parent.Profile.Name;
+        const parentName = isProfile
+          ? (profileName || (r.Parent && r.Parent.Label) || "(unknown profile)")
+          : ((r.Parent && r.Parent.Label) || "(unknown)");
         return {
-          parent: (r.Parent && r.Parent.Label) || "(unknown)",
+          parent: parentName,
           isProfile,
           type: isProfile ? "Profile" : "Permission Set",
           read: !!r.PermissionsRead,
