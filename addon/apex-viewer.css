@@ -1,0 +1,284 @@
+/* ===== Apex Code Viewer ===== */
+
+/* --- Selector bar --- */
+.av-type-select {
+  width: 11rem;
+  flex: 0 0 auto;
+}
+
+.av-search-wrapper {
+  position: relative;
+  flex: 1 1 auto;
+}
+
+.av-count {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* --- Autocomplete dropdown --- */
+.av-dropdown {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin-top: 2px;
+  max-height: 22rem;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #dddbda;
+  border-radius: .25rem;
+  box-shadow: 0 2px 3px 0 rgba(0, 0, 0, .16);
+}
+
+.av-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding: .4rem .75rem;
+  cursor: pointer;
+  border-bottom: 1px solid #f3f2f2;
+}
+
+.av-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.av-dropdown-item:hover,
+.av-dropdown-item.av-active {
+  background: #f3f2f2;
+}
+
+.av-dropdown-item mark {
+  background: #ffeb3b;
+  padding: 0;
+}
+
+.av-dropdown-sub {
+  font-size: .75rem;
+  color: #706e6b;
+  white-space: nowrap;
+}
+
+.av-dropdown-footer {
+  padding: .4rem .75rem;
+  font-size: .75rem;
+  color: #706e6b;
+  background: #fafaf9;
+}
+
+/* --- Badges --- */
+.av-badge-ok {
+  background: #d4f4d4;
+  color: #1a7a1a;
+}
+
+.av-badge-warn {
+  background: #fef0e6;
+  color: #b7530b;
+}
+
+.av-badge-error {
+  background: #fde2e1;
+  color: #ba0517;
+}
+
+.av-badge-info {
+  background: #eef4ff;
+  color: #0176d3;
+}
+
+.av-badge-test {
+  background: #f2eafd;
+  color: #7526e3;
+}
+
+.av-badge-hidden {
+  background: #ecebea;
+  color: #514f4d;
+}
+
+/* --- Metadata --- */
+.av-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: .5rem 1.25rem;
+  padding: .75rem 0;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.av-meta-label {
+  font-size: .75rem;
+  color: #706e6b;
+}
+
+.av-meta-value {
+  font-size: .8125rem;
+  word-break: break-word;
+}
+
+/* --- Toolbar --- */
+.av-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+  padding: .75rem 0;
+}
+
+.av-find {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  flex: 1 1 22rem;
+}
+
+.av-find .slds-input {
+  max-width: 22rem;
+}
+
+.av-find-count {
+  font-size: .75rem;
+  color: #706e6b;
+  min-width: 5.5rem;
+  white-space: nowrap;
+}
+
+.av-case-toggle {
+  font-size: .75rem;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.av-actions {
+  display: flex;
+  gap: .35rem;
+  margin-left: auto;
+}
+
+/* --- Code viewer --- */
+.av-code-scroll {
+  flex: 1 1 auto;
+  min-height: 12rem;
+  overflow: auto;
+  border: 1px solid #dddbda;
+  border-radius: .25rem;
+  background: #fff;
+}
+
+.av-code-grid {
+  display: flex;
+  min-width: max-content;
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+  font-size: .8125rem;
+  line-height: 1.45;
+}
+
+.av-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  margin: 0;
+  padding: .5rem .6rem .5rem .75rem;
+  text-align: right;
+  color: #a8a6a4;
+  background: #f7f7f6;
+  border-right: 1px solid #e5e5e5;
+  user-select: none;
+  white-space: pre;
+  font: inherit;
+}
+
+.av-code {
+  margin: 0;
+  padding: .5rem 1rem;
+  white-space: pre;
+  tab-size: 4;
+  color: #1f1f1f;
+  background: transparent;
+  font: inherit;
+}
+
+.av-code mark.av-match {
+  background: #fff3a3;
+  color: inherit;
+  padding: 0;
+  border-radius: 2px;
+}
+
+.av-code mark.av-match-current {
+  background: #ff9f1a;
+  color: #000;
+  outline: 1px solid #c26f00;
+}
+
+/* Light syntax theme (Apex) */
+.av-code .token.comment,
+.av-code .token.prolog,
+.av-code .token.doctype,
+.av-code .token.cdata {
+  color: #008000;
+  font-style: italic;
+}
+
+.av-code .token.string,
+.av-code .token.char {
+  color: #a31515;
+}
+
+.av-code .token.keyword,
+.av-code .token.boolean,
+.av-code .token.trigger,
+.av-code .token.important {
+  color: #0000ff;
+}
+
+.av-code .token.annotation,
+.av-code .token.annotation.punctuation {
+  color: #af00db;
+}
+
+.av-code .token.class-name {
+  color: #267f99;
+}
+
+.av-code .token.function {
+  color: #795e26;
+}
+
+.av-code .token.number {
+  color: #098658;
+}
+
+.av-code .token.sql {
+  color: #6f42c1;
+}
+
+.av-code .token.sql .token.keyword {
+  color: #0451a5;
+  font-weight: 600;
+}
+
+.av-code .token.operator,
+.av-code .token.punctuation {
+  color: #3b3b3b;
+}
+
+/* --- States --- */
+.av-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #706e6b;
+}
+
+.av-hidden-code {
+  padding: 2rem;
+  text-align: center;
+  color: #514f4d;
+  background: #fafaf9;
+  border: 1px dashed #c9c7c5;
+  border-radius: .25rem;
+}

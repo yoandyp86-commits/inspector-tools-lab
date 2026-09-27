@@ -1371,6 +1371,12 @@ class AllDataBoxTools extends React.PureComponent {
         label: "Access by Field",
         title: "Check which profiles and permission sets grant access to a field",
       },
+      {
+        ref: "apexViewerBtn",
+        href: "apex-viewer.html?" + hostArg,
+        label: "Apex Code Viewer",
+        title: "View Apex classes and triggers source code (read-only)",
+      },
     ];
     return h(
       "div",
