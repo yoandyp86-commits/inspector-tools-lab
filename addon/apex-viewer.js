@@ -412,10 +412,11 @@ class Model {
 class App extends React.Component {
   constructor(props) {
     super(props);
-    this.state = {input: "", open: false, activeIndex: 0, copied: false};
-    this.inputRef = React.createRef();
-    this.findRef = React.createRef();
-    this.dropdownRef = React.createRef();
+    this.state = {input: "", open: false, activeIndex: 0, copied: false, metaOpen: false};
+    // Callback refs (React 15 has no createRef)
+    this.inputEl = null;
+    this.findEl = null;
+    this.dropdownEl = null;
     this.onInput = this.onInput.bind(this);
     this.onInputKeyDown = this.onInputKeyDown.bind(this);
     this.onFocus = this.onFocus.bind(this);
@@ -443,8 +444,8 @@ class App extends React.Component {
       const el = document.getElementById("av-current-match");
       if (el) el.scrollIntoView({block: "center", inline: "nearest"});
     }
-    if (this.state.open && this.dropdownRef.current) {
-      const active = this.dropdownRef.current.querySelector(".av-active");
+    if (this.state.open && this.dropdownEl) {
+      const active = this.dropdownEl.querySelector(".av-active");
       if (active) active.scrollIntoView({block: "nearest"});
     }
   }
@@ -453,9 +454,9 @@ class App extends React.Component {
     const model = this.props.vm;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f" && model.selected && !model.selected.hidden) {
       e.preventDefault();
-      if (this.findRef.current) {
-        this.findRef.current.focus();
-        this.findRef.current.select();
+      if (this.findEl) {
+        this.findEl.focus();
+        this.findEl.select();
       }
     }
   }
@@ -484,7 +485,7 @@ class App extends React.Component {
 
   select(item) {
     this.setState({input: item.fullName, open: false, activeIndex: 0});
-    if (this.inputRef.current) this.inputRef.current.blur();
+    if (this.inputEl) this.inputEl.blur();
     this.props.vm.selectRecord(item);
   }
 
@@ -527,7 +528,7 @@ class App extends React.Component {
     if (!this.state.open || !model.lists[model.type]) return null;
     const {items, total} = model.suggestions(this.state.input);
     const typeInfo = TYPES[model.type];
-    return h("div", {className: "av-dropdown", ref: this.dropdownRef},
+    return h("div", {className: "av-dropdown", ref: el => { this.dropdownEl = el; }},
       items.length === 0 && h("div", {className: "av-dropdown-footer"}, "No " + typeInfo.plural + " match your search."),
       items.map((item, idx) =>
         h("div", {
@@ -567,8 +568,15 @@ class App extends React.Component {
       fields.push(field("Events", sel.events.length ? sel.events.join(", ") : "—"));
     }
     const statusClass = sel.status === "Active" ? "av-badge-ok" : (sel.status === "Deleted" ? "av-badge-error" : "av-badge-warn");
+    const metaOpen = this.state.metaOpen;
     return h("div", {},
-      h("div", {className: "slds-grid slds-grid_vertical-align-center slds-wrap slds-p-top_small"},
+      h("div", {className: "av-meta-header slds-grid slds-grid_vertical-align-center slds-wrap" + (metaOpen ? "" : " av-meta-header-collapsed")},
+        h("button", {
+          className: "av-meta-toggle",
+          "aria-expanded": metaOpen ? "true" : "false",
+          title: metaOpen ? "Hide details" : "Show details",
+          onClick: () => this.setState({metaOpen: !metaOpen}),
+        }, metaOpen ? "\u25BE" : "\u25B8"),
         h("h2", {className: "slds-text-heading_small slds-m-right_small"}, h("code", {}, sel.fullName)),
         h("span", {className: "slds-badge " + statusClass}, sel.status || "Unknown"),
         h("span", {className: "slds-badge " + (sel.isValid ? "av-badge-ok" : "av-badge-error")}, sel.isValid ? "Valid" : "Invalid"),
@@ -576,7 +584,7 @@ class App extends React.Component {
         sel.namespace && h("span", {className: "slds-badge av-badge-info"}, "Namespace " + sel.namespace),
         sel.hidden && h("span", {className: "slds-badge av-badge-hidden"}, "Code hidden")
       ),
-      h("div", {className: "av-meta"}, fields)
+      metaOpen && h("div", {className: "av-meta"}, fields)
     );
   }
 
@@ -593,7 +601,7 @@ class App extends React.Component {
           h("svg", {className: "slds-icon slds-input__icon slds-input__icon_left slds-icon-text-default", viewBox: "0 0 520 520"},
             h("use", {xlinkHref: "symbols.svg#search"})),
           h("input", {
-            ref: this.findRef,
+            ref: el => { this.findEl = el; },
             type: "search",
             className: "slds-input",
             placeholder: "Find in code (Ctrl+F)",
@@ -701,7 +709,7 @@ class App extends React.Component {
                   h("svg", {className: "slds-icon slds-input__icon slds-input__icon_left slds-icon-text-default", viewBox: "0 0 520 520"},
                     h("use", {xlinkHref: "symbols.svg#search"})),
                   h("input", {
-                    ref: this.inputRef,
+                    ref: el => { this.inputEl = el; },
                     type: "search",
                     className: "slds-input",
                     placeholder: list ? "Start typing a " + typeInfo.singular + " name…" : "Loading " + typeInfo.plural + "…",
