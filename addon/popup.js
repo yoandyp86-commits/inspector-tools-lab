@@ -1372,6 +1372,18 @@ class AllDataBoxTools extends React.PureComponent {
         title: "Check which profiles and permission sets grant access to a field",
       },
       {
+        ref: "userAccessCompareBtn",
+        href: "user-access-compare.html?" + hostArg,
+        label: "User Access Compare",
+        title: "Compare two users: profile, permission sets, custom permissions, CRUD, FLS and record access",
+      },
+      {
+        ref: "errorTrackerBtn",
+        href: "error-tracker.html?" + hostArg,
+        label: "Error Tracker",
+        title: "Find the validation rule, Apex code, custom label or flow that produces an error message",
+      },
+      {
         ref: "apexViewerBtn",
         href: "apex-viewer.html?" + hostArg,
         label: "Apex Code Viewer",

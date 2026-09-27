@@ -299,6 +299,24 @@ class Model {
       this.baseHtml = this.renderSegments([], -1);
     }
     this.computeMatches();
+    if (this.targetLine) {
+      this.selectMatchOnLine(this.targetLine);
+      this.targetLine = 0;
+    }
+  }
+
+  /** Makes the first match located on the given line the current one (deep link &line=). */
+  selectMatchOnLine(line) {
+    if (!this.matches.length || !this.code) return;
+    const lines = this.code.split("\n");
+    let start = 0;
+    for (let i = 0; i < line - 1 && i < lines.length; i++) start += lines[i].length + 1;
+    const end = start + (lines[line - 1] || "").length;
+    const idx = this.matches.findIndex(m => m.start >= start && m.start <= end);
+    if (idx !== -1) {
+      this.currentMatch = idx;
+      this.scrollToCurrent = true;
+    }
   }
 
   // ----- Find in code -----
@@ -412,7 +430,7 @@ class Model {
 class App extends React.Component {
   constructor(props) {
     super(props);
-    this.state = {input: "", open: false, activeIndex: 0, copied: false, metaOpen: false};
+    this.state = {input: props.vm.initialName || "", open: false, activeIndex: 0, copied: false, metaOpen: false};
     // Callback refs (React 15 has no createRef)
     this.inputEl = null;
     this.findEl = null;
@@ -755,9 +773,25 @@ class App extends React.Component {
   sfConn.getSession(sfHost).then(() => {
     let root = document.getElementById("root");
     let vm = new Model(sfHost);
+    // Optional deep link: &type=ApexClass|ApexTrigger&id=...&name=...&find=...&line=...
+    const deepId = args.get("id");
+    const deepType = args.get("type") || "ApexClass";
+    const openDeepLink = deepId && /^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/.test(deepId) && TYPES[deepType];
+    if (openDeepLink) {
+      vm.initialName = args.get("name") || "";
+      vm.findQuery = args.get("find") || "";
+      vm.targetLine = parseInt(args.get("line"), 10) || 0;
+      if (deepType !== vm.type) {
+        vm.type = deepType;
+        vm.loadList(deepType);
+      }
+    }
     vm.reactCallback = cb => {
       ReactDOM.render(h(App, {vm}), root, cb);
     };
     ReactDOM.render(h(App, {vm}), root);
+    if (openDeepLink) {
+      vm.selectRecord({id: deepId, fullName: vm.initialName || deepId});
+    }
   });
 }

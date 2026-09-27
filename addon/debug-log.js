@@ -29,6 +29,7 @@ class Model {
       {label: "No filter", value: ""},
       {label: "USER_DEBUG", value: "USER_DEBUG"},
       {label: "Exceptions", value: "EXCEPTION_THROWN|FATAL_ERROR"},
+      {label: "Errors (all)", value: "FATAL_ERROR|EXCEPTION_THROWN|VALIDATION_FAIL|FLOW_ELEMENT_ERROR|FLOW_ELEMENT_FAULT"},
       {label: "DML Operations", value: "DML_BEGIN|DML_END"},
       {label: "Limits", value: "LIMIT_USAGE|CUMULATIVE_LIMIT_USAGE"},
       {label: "Callouts", value: "CALLOUT_REQUEST|CALLOUT_RESPONSE"},

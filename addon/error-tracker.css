@@ -1,0 +1,236 @@
+.et-form .et-row {
+  display: flex;
+  gap: .75rem;
+  align-items: flex-end;
+  margin: .5rem 0;
+}
+
+.et-checkbox {
+  white-space: nowrap;
+  cursor: pointer;
+  padding-bottom: .5rem;
+}
+
+.et-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #706e6b;
+}
+
+.et-empty-small {
+  padding: .5rem .75rem;
+  color: #706e6b;
+  font-style: italic;
+}
+
+.et-progress-label {
+  font-size: .75rem;
+  color: #706e6b;
+  margin-bottom: .25rem;
+}
+
+.et-indeterminate {
+  opacity: .35;
+  animation: et-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes et-pulse {
+  0%, 100% { opacity: .2; }
+  50% { opacity: .6; }
+}
+
+.et-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+
+.et-toolbar > div:first-child {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+.et-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: .5rem;
+  flex: 0 1 auto;
+}
+
+.et-toolbar-actions .slds-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.et-filter-input {
+  width: 16rem;
+  max-width: 100%;
+}
+
+.et-searched {
+  display: inline-block;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.et-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: .75rem;
+  margin-bottom: .375rem;
+}
+
+.et-count {
+  font-size: .75rem;
+  font-weight: 400;
+  color: #706e6b;
+}
+
+.et-card {
+  border: 1px solid #dddbda;
+  border-radius: .25rem;
+  padding: .625rem .75rem;
+  margin-bottom: .5rem;
+  background: #fff;
+}
+
+.et-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  margin-bottom: .375rem;
+  font-weight: 600;
+}
+
+.et-setup-link {
+  margin-left: auto;
+  font-size: .75rem;
+  font-weight: 400;
+}
+
+.et-sub {
+  font-size: .75rem;
+  font-weight: 400;
+  color: #706e6b;
+}
+
+.et-message {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: .25rem;
+}
+
+.et-code {
+  font-family: Consolas, Menlo, Monaco, "Courier New", monospace;
+  font-size: .75rem;
+  background: #f8f8f8;
+  border: 1px solid #ecebea;
+  border-radius: .25rem;
+  padding: .5rem;
+  margin: .375rem 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.et-snippet {
+  padding: .25rem 0;
+  white-space: pre;
+  word-break: normal;
+}
+
+.et-snippet > div {
+  padding: 0 .5rem;
+}
+
+.et-hit-line {
+  background: #fff3c4;
+}
+
+.et-line-no {
+  display: inline-block;
+  min-width: 3rem;
+  margin-right: .5rem;
+  color: #a8a6a4;
+  text-align: right;
+  user-select: none;
+}
+
+.et-hit {
+  margin-top: .375rem;
+}
+
+.et-note {
+  font-size: .75rem;
+  color: #706e6b;
+  font-style: italic;
+  margin-top: .25rem;
+}
+
+.et-note-error {
+  color: #ba0517;
+}
+
+.et-eval {
+  margin-top: .5rem;
+}
+
+.et-eval-title {
+  font-size: .75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #514f4d;
+  margin-bottom: .25rem;
+}
+
+.et-eval-table td {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.et-empty-value {
+  color: #a8a6a4;
+  font-style: italic;
+}
+
+.et-usages {
+  margin-top: .25rem;
+  font-size: .8125rem;
+}
+
+.et-badge-active {
+  background: #d4f4d4;
+  color: #1a7a1a;
+}
+
+.et-badge-inactive {
+  background: #ecebea;
+  color: #514f4d;
+}
+
+.et-badge-match {
+  background: #eef4ff;
+  color: #0176d3;
+}
+
+.et-card-origin {
+  border-left: 3px solid #ba0517;
+}
+
+.et-badge-origin {
+  background: #fde2e1;
+  color: #ba0517;
+}
+
+.et-badge-type {
+  background: #f2eafd;
+  color: #7526e3;
+}

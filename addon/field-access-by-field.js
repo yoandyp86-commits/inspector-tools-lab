@@ -67,7 +67,7 @@ class Model {
     this.didUpdate();
 
     const escaped = field.replace(/'/g, "\\'");
-    const soql = "SELECT Parent.Label, Parent.Profile.Name, Parent.IsOwnedByProfile, PermissionsRead, PermissionsEdit"
+    const soql = "SELECT ParentId, Parent.Label, Parent.Profile.Name, Parent.ProfileId, Parent.IsOwnedByProfile, PermissionsRead, PermissionsEdit"
       + " FROM FieldPermissions WHERE Field = '" + escaped + "'"
       + " ORDER BY Parent.IsOwnedByProfile DESC, PermissionsEdit DESC, Parent.Label";
     const promise = sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent(soql));
@@ -78,8 +78,16 @@ class Model {
         const parentName = isProfile
           ? (profileName || (r.Parent && r.Parent.Label) || "(unknown profile)")
           : ((r.Parent && r.Parent.Label) || "(unknown)");
+        const profileId = r.Parent && r.Parent.ProfileId;
+        let link = null;
+        if (isProfile && profileId) {
+          link = this.sfLink + "/lightning/setup/EnhancedProfiles/page?address=%2F" + profileId;
+        } else if (!isProfile && r.ParentId) {
+          link = this.sfLink + "/lightning/setup/PermSets/page?address=%2F" + r.ParentId;
+        }
         return {
           parent: parentName,
+          link,
           isProfile,
           type: isProfile ? "Profile" : "Permission Set",
           read: !!r.PermissionsRead,
@@ -201,7 +209,10 @@ class App extends React.Component {
               h("tbody", {},
                 rows.map((row, idx) =>
                   h("tr", {key: row.parent + "_" + idx},
-                    h("td", {}, row.parent),
+                    h("td", {},
+                      row.link
+                        ? h("a", {href: row.link, target: "_blank", rel: "noopener noreferrer"}, row.parent)
+                        : row.parent),
                     h("td", {},
                       h("span", {
                         className: "slds-badge " + (row.isProfile ? "fa-badge-profile" : "fa-badge-ps"),
