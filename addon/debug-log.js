@@ -25,17 +25,63 @@ class Model {
     this.previewFilterInput = ""; // live input value kept separate to avoid focus loss while typing
     this.previewFilterTimerId = 0;
     this.previewFilterApplySeq = 0;
+    // Numbered templates follow the diagnosis order: 1 what failed, 2 which rule, 3 what the code did, 4 what ran.
     this.filterTemplates = [
-      {label: "No filter", value: ""},
-      {label: "USER_DEBUG", value: "USER_DEBUG"},
-      {label: "Exceptions", value: "EXCEPTION_THROWN|FATAL_ERROR"},
-      {label: "Errors (all)", value: "FATAL_ERROR|EXCEPTION_THROWN|VALIDATION_FAIL|FLOW_ELEMENT_ERROR|FLOW_ELEMENT_FAULT"},
-      {label: "DML Operations", value: "DML_BEGIN|DML_END"},
-      {label: "Limits", value: "LIMIT_USAGE|CUMULATIVE_LIMIT_USAGE"},
-      {label: "Callouts", value: "CALLOUT_REQUEST|CALLOUT_RESPONSE"},
-      {label: "Flow", value: "FLOW_CREATE_INTERVIEW|FLOW_START_INTERVIEW|FLOW_ELEMENT"},
-      {label: "Validation Rules", value: "VALIDATION_RULE|VALIDATION_FORMULA"},
-      {label: "USER_DEBUG + Exceptions", value: "USER_DEBUG|EXCEPTION_THROWN|FATAL_ERROR"},
+      {
+        label: "Sin filtro",
+        value: "",
+        help: "Muestra el log completo. Úsalo con «Find in log» para ver el contexto alrededor de una línea concreta (por ejemplo, el nombre de una regla o un número de línea).",
+      },
+      {
+        label: "1 · Errores (todos)",
+        value: "FATAL_ERROR|EXCEPTION_THROWN|VALIDATION_FAIL|FLOW_ELEMENT_ERROR|FLOW_ELEMENT_FAULT",
+        help: "Qué falló y dónde. EXCEPTION_THROWN|[n] indica la línea de código; FATAL_ERROR trae debajo el stack trace (léelo de abajo arriba); VALIDATION_FAIL significa que una Validation Rule bloqueó el guardado (usa la plantilla 2 para saber cuál). Si no sale nada, no hubo error de código ni de validación.",
+      },
+      {
+        label: "2 · Validation Rules (regla y valores)",
+        value: "VALIDATION_RULE|VALIDATION_FORMULA|VALIDATION_FAIL",
+        help: "Cada regla evaluada con su fórmula y, tras el último «|», los valores de sus campos. La regla que falla es la inmediatamente anterior a VALIDATION_FAIL. Ojo: son los valores en ese momento; el log no indica qué campos cambiaron (usa la plantilla 3).",
+      },
+      {
+        label: "3 · Qué hizo el código (debug + DML)",
+        value: "USER_DEBUG|DML_BEGIN|VALIDATION_FAIL|EXCEPTION_THROWN|FATAL_ERROR",
+        help: "Cada insert/update/delete (DML_BEGIN|[línea]|operación|objeto|filas) y los System.debug de los desarrolladores, en orden. El USER_DEBUG justo antes de un DML suele mostrar los valores que el código intenta guardar.",
+      },
+      {
+        label: "4 · Recorrido de ejecución",
+        value: "CODE_UNIT_STARTED|FLOW_START_INTERVIEW_BEGIN|FATAL_ERROR",
+        help: "Qué triggers, clases y flows se ejecutaron y en qué orden. Útil para saber qué automatizaciones intervinieron antes del error.",
+      },
+      {
+        label: "Solo System.debug",
+        value: "USER_DEBUG",
+        help: "Solo los mensajes System.debug que dejaron los desarrolladores en el código.",
+      },
+      {
+        label: "Excepciones",
+        value: "EXCEPTION_THROWN|FATAL_ERROR",
+        help: "Excepciones de Apex. Una EXCEPTION_THROWN sin FATAL_ERROR después fue capturada por el código (try/catch) y no llegó al usuario.",
+      },
+      {
+        label: "Operaciones DML",
+        value: "DML_BEGIN|DML_END",
+        help: "Inicio y fin de cada insert/update/delete: línea de código, operación, objeto y número de filas.",
+      },
+      {
+        label: "Límites",
+        value: "LIMIT_USAGE|CUMULATIVE_LIMIT_USAGE",
+        help: "Consumo de límites de Salesforce (consultas SOQL, DML, tiempo de CPU…). Útil con errores como «Too many SOQL queries» o «Apex CPU time limit exceeded».",
+      },
+      {
+        label: "Callouts",
+        value: "CALLOUT_REQUEST|CALLOUT_RESPONSE",
+        help: "Llamadas a sistemas externos: la petición enviada y la respuesta recibida.",
+      },
+      {
+        label: "Flows (detalle)",
+        value: "FLOW_CREATE_INTERVIEW|FLOW_START_INTERVIEW|FLOW_ELEMENT",
+        help: "Ejecución de flows elemento a elemento. Útil para ver por qué rama pasó un flow o en qué elemento falló.",
+      },
     ];
     this._onPreviewKeyDown = (e) => {
       const key = (e.key || "").toLowerCase();
@@ -748,6 +794,14 @@ Please structure your response in a clear, organized manner using these sections
         this.didUpdate();
       }
     }, 0);
+  }
+
+  /** Help text for the current filter: the template description, or a generic note for custom filters. */
+  getFilterHelp() {
+    const current = this.previewFilterInput || "";
+    const template = this.filterTemplates.find(t => t.value === current);
+    if (template) return template.help;
+    return "Filtro personalizado: se muestran las líneas que contienen cualquiera de los textos separados por «|», junto con sus líneas de continuación.";
   }
 
   getFilteredLogBody() {
@@ -1853,7 +1907,9 @@ function PreviewModal({model, hideButtonsOption}) {
             ...model.filterTemplates.map(t => h("option", {key: t.value, value: t.value}, t.label))
             )
           )
-        )
+        ),
+        h("div", {className: "slds-form-element__help", style: {fontSize: ".75rem", color: "#706e6b", whiteSpace: "normal", lineHeight: "1.4"}},
+          model.getFilterHelp())
       )
     ),
     h("div", {className: "slds-col"},
