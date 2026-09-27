@@ -32,14 +32,25 @@ function normalize(s) {
   return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/** Decodes the HTML entities that debug logs use (e.g. &quot; instead of "). */
+function decodeEntities(s) {
+  return (s || "")
+    .replace(/&quot;|&#34;/g, "\"")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
 /** Removes the wrappers Salesforce adds around a user-facing error message. */
 function cleanError(raw) {
-  const lines = (raw || "").replace(STACK_FRAME_RE, " ").replace(/\bAnonymousBlock: line \d+, column \d+/g, " ")
+  const lines = decodeEntities(raw).replace(STACK_FRAME_RE, " ").replace(/\bAnonymousBlock: line \d+, column \d+/g, " ")
     .replace(/\r\n?/g, "\n").split("\n")
     .map(l => l.trim())
     .filter(Boolean)
     .filter(l => !/^(Class|Trigger|AnonymousBlock)\.[\w.$]+: line \d+/i.test(l) && !/^External entry point$/i.test(l));
   let s = lines.join(" ");
+  s = s.replace(/^\d{2}:\d{2}:\d{2}\.\d+ \(\d+\)\|[A-Z_]+\|(\[\d+\]\|)?/, ""); // pasted debug log line
   s = s.replace(/^Review the errors on this page\.?\s*/i, "");
   s = s.replace(/^.*first error:\s*/i, "");
   s = s.replace(/^.*\bcaused by:\s*/i, "");

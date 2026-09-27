@@ -759,7 +759,21 @@ Please structure your response in a clear, organized manner using these sections
 
     if (patterns.length === 0) return this.previewLog.body;
 
-    const filteredLines = lines.filter(line => patterns.some(pattern => line.includes(pattern)));
+    // A log event starts with "HH:MM:SS.n (nanos)|". Lines that do not start like that are the
+    // continuation of the previous event (multi-line formulas with their values, stack traces,
+    // multi-line USER_DEBUG output), so they are kept together with a matching event.
+    const eventLineRe = /^\d{2}:\d{2}:\d{2}\.\d+ \(\d+\)\|/;
+    const filteredLines = [];
+    let keepContinuation = false;
+    for (const line of lines) {
+      const matches = patterns.some(pattern => line.includes(pattern));
+      if (eventLineRe.test(line)) {
+        keepContinuation = matches;
+        if (matches) filteredLines.push(line);
+      } else if (keepContinuation || matches) {
+        filteredLines.push(line);
+      }
+    }
 
     return filteredLines.join("\n");
   }
