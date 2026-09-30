@@ -22,7 +22,7 @@
 
   #insext .insext-popup {
     box-sizing: border-box;
-    width: 280px;
+    width: 350px;
     min-height: 450px;
     position: absolute;
     background-color: var(--sfir-btn-white);
