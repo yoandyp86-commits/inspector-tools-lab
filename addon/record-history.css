@@ -1,0 +1,104 @@
+.rh-record {
+  padding: .75rem;
+  border: 1px solid #dddbda;
+  border-radius: .25rem;
+  background: #fafaf9;
+  margin-bottom: .5rem;
+}
+
+.rh-sub {
+  font-size: .75rem;
+  color: #706e6b;
+  margin-top: .125rem;
+}
+
+.rh-tracked {
+  margin-bottom: .5rem;
+}
+
+.rh-toggle {
+  font-size: .8125rem;
+}
+
+.rh-tracked-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+  padding: .25rem 0 .25rem 1rem;
+}
+
+.rh-chip {
+  font-size: .75rem;
+  padding: .125rem .5rem;
+  border-radius: .75rem;
+  background: #eef4ff;
+  color: #014486;
+}
+
+.rh-note {
+  font-size: .75rem;
+  color: #706e6b;
+  margin-bottom: .5rem;
+}
+
+.rh-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  align-items: center;
+  margin-bottom: .5rem;
+}
+
+.rh-filters .slds-select_container {
+  min-width: 12rem;
+}
+
+.rh-grow {
+  flex: 1 1 auto;
+}
+
+.rh-table {
+  table-layout: fixed;
+}
+
+.rh-table td {
+  vertical-align: top;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.rh-save td {
+  background: #f3f2f2;
+  font-size: .8125rem;
+}
+
+.rh-count {
+  margin-left: .5rem;
+  font-size: .75rem;
+  color: #706e6b;
+}
+
+.rh-api {
+  font-size: .75rem;
+  color: #706e6b;
+}
+
+.rh-value {
+  white-space: pre-wrap;
+}
+
+.rh-muted {
+  color: #706e6b;
+  font-style: italic;
+}
+
+.rh-badge-event {
+  background: #e3f3e3;
+  color: #2e6b30;
+}
+
+.rh-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #706e6b;
+}

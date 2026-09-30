@@ -1345,6 +1345,7 @@ class AllDataBox extends React.PureComponent {
                     ref: "showAllDataBoxTools",
                     sfHost,
                     linkTarget,
+                    contextRecordId,
                   }
                 )
                 : "AllData aspect " + activeSearchAspect + " not implemented"
@@ -1355,9 +1356,16 @@ class AllDataBox extends React.PureComponent {
 /** Tools tab component — hub for custom SFIR tools */
 class AllDataBoxTools extends React.PureComponent {
   render() {
-    let {sfHost, linkTarget} = this.props;
+    let {sfHost, linkTarget, contextRecordId} = this.props;
     let hostArg = new URLSearchParams();
     hostArg.set("host", sfHost);
+    const recordId = contextRecordId && /^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/.test(contextRecordId) ? contextRecordId : "";
+    const historyArg = new URLSearchParams(hostArg);
+    const compareArg = new URLSearchParams(hostArg);
+    if (recordId) {
+      historyArg.set("recordId", recordId);
+      compareArg.set("id1", recordId);
+    }
         const tools = [
       {
         ref: "fieldPermissionsBtn",
@@ -1388,6 +1396,24 @@ class AllDataBoxTools extends React.PureComponent {
         href: "apex-viewer.html?" + hostArg,
         label: "Apex Code Viewer",
         title: "View Apex classes and triggers source code (read-only)",
+      },
+      {
+        ref: "setupAuditTrailBtn",
+        href: "setup-audit-trail.html?" + hostArg,
+        label: "Setup Audit Trail",
+        title: "See who changed what in Setup, with filters and CSV export",
+      },
+      {
+        ref: "recordHistoryBtn",
+        href: "record-history.html?" + historyArg,
+        label: "Record History",
+        title: "See the field history of a record: who changed which fields and when",
+      },
+      {
+        ref: "recordCompareBtn",
+        href: "record-compare.html?" + compareArg,
+        label: "Record Compare",
+        title: "Compare two records of the same object field by field",
       },
     ];
     return h(

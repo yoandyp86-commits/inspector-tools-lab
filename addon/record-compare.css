@@ -1,0 +1,106 @@
+.rc-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  align-items: flex-end;
+}
+
+.rc-input {
+  flex: 1 1 14rem;
+}
+
+.rc-summaries {
+  display: flex;
+  gap: .75rem;
+  margin-bottom: .75rem;
+}
+
+.rc-summary {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: .75rem;
+  border: 1px solid #dddbda;
+  border-radius: .25rem;
+  background: #fafaf9;
+}
+
+.rc-slot {
+  font-size: .75rem;
+  text-transform: uppercase;
+  color: #706e6b;
+}
+
+.rc-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: .125rem .75rem;
+  margin-top: .375rem;
+  font-size: .75rem;
+}
+
+.rc-meta dt {
+  color: #706e6b;
+}
+
+.rc-meta dd {
+  word-break: break-word;
+}
+
+.rc-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  align-items: center;
+  margin-bottom: .5rem;
+}
+
+.rc-check {
+  white-space: nowrap;
+  font-size: .8125rem;
+}
+
+.rc-search {
+  max-width: 16rem;
+}
+
+.rc-grow {
+  flex: 1 1 auto;
+}
+
+.rc-table {
+  table-layout: fixed;
+}
+
+.rc-table td {
+  vertical-align: top;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.rc-table tr.rc-diff td {
+  background: #fff8e1;
+}
+
+.rc-api {
+  font-size: .75rem;
+  color: #706e6b;
+}
+
+.rc-value {
+  white-space: pre-wrap;
+}
+
+.rc-more {
+  font-size: .75rem;
+}
+
+.rc-muted {
+  color: #706e6b;
+  font-style: italic;
+}
+
+.rc-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #706e6b;
+}

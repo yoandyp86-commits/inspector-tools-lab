@@ -1,0 +1,59 @@
+.sat-toolbar .sat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  align-items: flex-end;
+  margin-bottom: .5rem;
+}
+
+.sat-toolbar .slds-form-element {
+  min-width: 10rem;
+}
+
+.sat-grow {
+  flex: 1 1 14rem;
+}
+
+.sat-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: .5rem;
+}
+
+.sat-table {
+  table-layout: fixed;
+}
+
+.sat-table td {
+  vertical-align: top;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.sat-nowrap {
+  white-space: nowrap;
+}
+
+.sat-wrap {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.sat-badge-delegate {
+  background: #fef1d9;
+  color: #8c4b02;
+  margin-top: .25rem;
+}
+
+.sat-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #706e6b;
+}
+
+.sat-note {
+  margin-top: .75rem;
+  font-size: .75rem;
+  color: #706e6b;
+}
