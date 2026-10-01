@@ -71,3 +71,11 @@
 .fa-filter-input {
   max-width: 18rem;
 }
+
+.fa-perm-off {
+  color: #c9c7c5;
+}
+
+.fa-perm-table th {
+  white-space: nowrap;
+}
