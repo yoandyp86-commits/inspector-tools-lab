@@ -317,3 +317,209 @@
   border: 1px dashed #c9c7c5;
   border-radius: .25rem;
 }
+
+/* ===== Search in code ===== */
+.av-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-bottom: .75rem;
+}
+
+.av-mono {
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+}
+
+.av-search-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .35rem 1rem;
+  padding-top: .5rem;
+}
+
+.av-sep {
+  width: 1px;
+  height: 1rem;
+  background: #dddbda;
+}
+
+.av-search-cache {
+  margin-left: auto;
+  font-size: .75rem;
+  color: #706e6b;
+  white-space: nowrap;
+}
+
+.av-progress {
+  height: .4rem;
+  max-width: 24rem;
+  margin: .75rem auto 0;
+  background: #ecebea;
+  border-radius: .2rem;
+  overflow: hidden;
+}
+
+.av-progress-bar {
+  height: 100%;
+  background: #0176d3;
+  transition: width .2s;
+}
+
+.av-chain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .35rem;
+  padding: .75rem 0 .5rem;
+}
+
+.av-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  color: #514f4d;
+}
+
+.av-chip code {
+  padding: .1rem .45rem;
+  background: #f3f2f2;
+  border: 1px solid #dddbda;
+  border-radius: 1rem;
+  font-size: .8125rem;
+}
+
+.av-chip-last code {
+  background: #eef4ff;
+  border-color: #0176d3;
+  color: #014486;
+}
+
+.av-chip-sep {
+  color: #a8a6a4;
+  font-size: 1rem;
+}
+
+.av-chip-remove {
+  border: none;
+  background: transparent;
+  color: #706e6b;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 .15rem;
+}
+
+.av-chip-remove:hover {
+  color: #ba0517;
+}
+
+.av-summary {
+  margin-left: .5rem;
+  font-size: .75rem;
+  color: #706e6b;
+}
+
+.av-res-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.av-res-filter {
+  max-width: 20rem;
+}
+
+.av-res-list {
+  padding: .5rem 0;
+}
+
+.av-res-file {
+  margin-bottom: .5rem;
+  border: 1px solid #dddbda;
+  border-radius: .25rem;
+  background: #fff;
+}
+
+.av-res-file-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .4rem .6rem;
+  background: #fafaf9;
+  cursor: pointer;
+  user-select: none;
+}
+
+.av-res-file-header:hover {
+  background: #f3f2f2;
+}
+
+.av-res-toggle {
+  width: 1rem;
+  color: #0176d3;
+}
+
+.av-res-name {
+  font-weight: 600;
+}
+
+.av-res-count {
+  font-size: .75rem;
+  color: #706e6b;
+}
+
+.av-res-setup {
+  margin-left: auto;
+  font-size: .75rem;
+}
+
+.av-res-lines {
+  border-top: 1px solid #e5e5e5;
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+  font-size: .8125rem;
+}
+
+.av-res-line {
+  display: flex;
+  gap: .75rem;
+  padding: .15rem .6rem;
+  cursor: pointer;
+}
+
+.av-res-line:hover {
+  background: #eef4ff;
+}
+
+.av-res-lineno {
+  flex: 0 0 3.5rem;
+  text-align: right;
+  color: #a8a6a4;
+  user-select: none;
+}
+
+.av-res-code {
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.av-res-code mark.av-match {
+  background: #fff3a3;
+  color: inherit;
+  padding: 0;
+  border-radius: 2px;
+}
+
+.av-res-more {
+  margin: .25rem .6rem .4rem 4.85rem;
+  font-size: .75rem;
+}
+
+.av-res-more-files {
+  display: block;
+  margin: .5rem auto;
+}

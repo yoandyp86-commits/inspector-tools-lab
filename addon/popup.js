@@ -1395,7 +1395,7 @@ class AllDataBoxTools extends React.PureComponent {
         ref: "apexViewerBtn",
         href: "apex-viewer.html?" + hostArg,
         label: "Apex Code Viewer",
-        title: "View Apex classes and triggers source code (read-only)",
+        title: "View Apex source code and find which classes/triggers contain a code fragment",
       },
       {
         ref: "setupAuditTrailBtn",
