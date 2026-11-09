@@ -5,6 +5,7 @@ import {UserInfoModel, copyToClipboard} from "./utils.js";
 /* global initButton */
 
 let h = React.createElement;
+const SEARCH_LIMIT = 50;
 
 class Model {
   constructor(sfHost) {
@@ -16,7 +17,14 @@ class Model {
     this.title = "Field Permissions";
     this.errorMessages = [];
 
-    this.selectedPS = null;   // {Id, Name, Label, Type}
+    this.selectedPS = null;   // {Id, Name, Label, kind}
+    this.searchResults = [];  // normalized PS rows from the last search
+    this.searchedQuery = "";  // text used in the last search
+    this.searchDone = false;
+    this.searchHasMore = false;
+    this.resultsVisible = false;
+    this.includeProfiles = false;
+    this.searchSeq = 0;       // ignores stale responses
     this.fields = [];         // rows
     this.filter = "";
 
@@ -50,27 +58,71 @@ class Model {
       });
   }
 
-  async searchPermissionSets(query) {
+  static escapeLike(text) {
+    return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/%/g, "\\%").replace(/_/g, "\\_");
+  }
+
+  static normalizePS(r) {
+    const isProfile = !!r.IsOwnedByProfile;
+    const isGroup = !!r.PermissionSetGroupId;
+    return {
+      Id: r.Id,
+      Name: r.Name,
+      Label: isProfile ? (r.Profile && r.Profile.Name) || r.Label : r.Label,
+      kind: isProfile ? "Profile" : (isGroup ? "Group" : "Permission Set"),
+    };
+  }
+
+  runSearch(query) {
     query = query.trim();
-    if (!query) return [];
-    const escaped = query.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    // IsOwnedByProfile = false hides the per-profile permission sets; show real PS and groups.
-    const soql = "SELECT Id, Name, Label, Type, PermissionSetGroupId, License.Name FROM PermissionSet"
-      + " WHERE IsOwnedByProfile = false AND (Label LIKE '%" + escaped + "%' OR Name LIKE '%" + escaped + "%')"
-      + " WITH USER_MODE ORDER BY Label LIMIT 50";
-    try {
-      const res = await sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent(soql));
-      return res.records || [];
-    } catch (err) {
-      console.error("Unable to query permission sets:", err);
-      this.errorMessages.push("Error searching permission sets: " + err.message);
-      this.didUpdate();
-      return [];
+    if (!query) return;
+    const like = "'%" + Model.escapeLike(query) + "%'";
+    let where = "(IsOwnedByProfile = false AND (Label LIKE " + like + " OR Name LIKE " + like + "))";
+    if (this.includeProfiles) {
+      where = "(" + where + " OR (IsOwnedByProfile = true AND Profile.Name LIKE " + like + "))";
     }
+    const soql = "SELECT Id, Name, Label, Type, PermissionSetGroupId, IsOwnedByProfile, Profile.Name"
+      + " FROM PermissionSet WHERE " + where + " LIMIT " + (SEARCH_LIMIT + 1);
+    const seq = ++this.searchSeq;
+    this.errorMessages = [];
+    this.didUpdate();
+    const promise = sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent(soql));
+    this.spinFor("searching permission sets", promise, (res) => {
+      if (seq !== this.searchSeq) return;
+      const rows = (res.records || []).map(Model.normalizePS)
+        .sort((a, b) => a.Label.localeCompare(b.Label));
+      this.searchHasMore = rows.length > SEARCH_LIMIT;
+      this.searchResults = rows.slice(0, SEARCH_LIMIT);
+      this.searchedQuery = query;
+      this.searchDone = true;
+      this.resultsVisible = true;
+    });
+  }
+
+  setIncludeProfiles(value, currentQuery) {
+    this.includeProfiles = value;
+    // Re-run the last search so the list reflects the checkbox.
+    const q = (currentQuery || "").trim() || this.searchedQuery;
+    if (this.searchDone && q) {
+      this.runSearch(q);
+    } else {
+      this.didUpdate();
+    }
+  }
+
+  showResults() {
+    this.resultsVisible = true;
+    this.didUpdate();
+  }
+
+  hideResults() {
+    this.resultsVisible = false;
+    this.didUpdate();
   }
 
   selectPS(ps) {
     this.selectedPS = ps;
+    this.resultsVisible = false;
     this.fields = [];
     this.filter = "";
     this.didUpdate();
@@ -115,9 +167,10 @@ class Model {
 }
 
 function Mark({text, query}) {
-  if (!query) return text;
-  const i = text.toLowerCase().indexOf(query.toLowerCase());
-  if (i < 0) return text;
+  // React 15: functional components must return an element, never a bare string.
+  text = text || "";
+  const i = query ? text.toLowerCase().indexOf(query.toLowerCase()) : -1;
+  if (i < 0) return h("span", {}, text);
   return h("span", {},
     text.slice(0, i),
     h("mark", {}, text.slice(i, i + query.length)),
@@ -127,88 +180,128 @@ function Mark({text, query}) {
 class PSSearch extends React.Component {
   constructor(props) {
     super(props);
-    this.state = {query: "", matches: [], open: false, activeIndex: -1};
-    this.timer = null;
+    this.state = {query: "", activeIndex: -1};
     this.onChange = this.onChange.bind(this);
     this.onKeyDown = this.onKeyDown.bind(this);
-    this.wrapEl = null;
-    this.setWrapEl = (el) => { this.wrapEl = el; };
-    this.docClick = this.docClick.bind(this);
+    this.onSearch = this.onSearch.bind(this);
+    this.onToggleProfiles = this.onToggleProfiles.bind(this);
+    this.listEl = null;
+    this.setListEl = (el) => { this.listEl = el; };
   }
 
-  componentDidMount() { document.addEventListener("mousedown", this.docClick); }
-  componentWillUnmount() {
-    document.removeEventListener("mousedown", this.docClick);
-    if (this.timer) clearTimeout(this.timer);
+  componentWillReceiveProps() {
+    // New results arrive through the model: reset keyboard highlight.
+    this.setState({activeIndex: -1});
   }
 
-  docClick(e) {
-    if (this.wrapEl && !this.wrapEl.contains(e.target)) {
-      this.setState({open: false});
-    }
+  onChange(e) { this.setState({query: e.target.value}); }
+
+  onSearch() {
+    this.setState({activeIndex: -1});
+    this.props.model.runSearch(this.state.query);
   }
 
-  onChange(e) {
-    const query = e.target.value;
-    this.setState({query});
-    if (this.timer) clearTimeout(this.timer);
-    if (!query.trim()) { this.setState({matches: [], open: false}); return; }
-    this.timer = setTimeout(async () => {
-      const matches = await this.props.model.searchPermissionSets(query);
-      this.setState({matches, open: true, activeIndex: -1});
-    }, 350);
+  onToggleProfiles(e) {
+    this.props.model.setIncludeProfiles(e.target.checked, this.state.query);
   }
 
   pick(ps) {
-    this.setState({query: ps.Label, open: false});
+    this.setState({activeIndex: -1});
     this.props.model.selectPS(ps);
   }
 
+  moveActive(index) {
+    this.setState({activeIndex: index}, () => {
+      const item = this.listEl && this.listEl.children[index];
+      if (item && item.scrollIntoView) item.scrollIntoView({block: "nearest"});
+    });
+  }
+
   onKeyDown(e) {
-    const {matches, activeIndex, open} = this.state;
-    if (!open || !matches.length) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); this.setState({activeIndex: Math.min(activeIndex + 1, matches.length - 1)}); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); this.setState({activeIndex: Math.max(activeIndex - 1, 0)}); }
-    else if (e.key === "Enter" && activeIndex >= 0) { e.preventDefault(); this.pick(matches[activeIndex]); }
-    else if (e.key === "Escape") { this.setState({open: false}); }
+    const {model} = this.props;
+    const {activeIndex} = this.state;
+    const results = model.resultsVisible ? model.searchResults : [];
+    if (e.key === "ArrowDown" && results.length) {
+      e.preventDefault();
+      this.moveActive(Math.min(activeIndex + 1, results.length - 1));
+    } else if (e.key === "ArrowUp" && results.length) {
+      e.preventDefault();
+      this.moveActive(Math.max(activeIndex - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (activeIndex >= 0 && results[activeIndex]) {
+        this.pick(results[activeIndex]);
+      } else {
+        this.onSearch();
+      }
+    } else if (e.key === "Escape") {
+      model.hideResults();
+    }
   }
 
   render() {
-    const {query, matches, open, activeIndex} = this.state;
-    return h("div", {className: "fp-search-wrapper", ref: this.setWrapEl},
+    const {model} = this.props;
+    const {query, activeIndex} = this.state;
+    const results = model.searchResults;
+    const canSearch = query.trim().length > 0 && model.spinnerCount === 0;
+    return h("div", {className: "fp-search-wrapper"},
       h("div", {className: "slds-form-element"},
         h("label", {className: "slds-form-element__label"}, "Search permission set"),
-        h("div", {className: "slds-form-element__control slds-input-has-icon slds-input-has-icon_left"},
-          h("svg", {className: "slds-icon slds-input__icon slds-input__icon_left slds-icon-text-default", viewBox: "0 0 520 520"},
-            h("use", {xlinkHref: "symbols.svg#search"})),
+        h("div", {className: "fp-search-row"},
+          h("div", {className: "slds-form-element__control slds-input-has-icon slds-input-has-icon_left fp-search-input"},
+            h("svg", {className: "slds-icon slds-input__icon slds-input__icon_left slds-icon-text-default", viewBox: "0 0 520 520"},
+              h("use", {xlinkHref: "symbols.svg#search"})),
+            h("input", {
+              type: "search",
+              className: "slds-input",
+              placeholder: "Part of the label or API name",
+              value: query,
+              autoFocus: true,
+              onChange: this.onChange,
+              onKeyDown: this.onKeyDown,
+            })
+          ),
+          h("button", {
+            className: "slds-button slds-button_brand",
+            disabled: !canSearch,
+            onClick: this.onSearch,
+          }, "Search")
+        ),
+        h("div", {className: "slds-checkbox slds-m-top_x-small"},
           h("input", {
-            type: "search",
-            className: "slds-input",
-            placeholder: "Permission set label or API name",
-            value: query,
-            autoFocus: true,
-            onChange: this.onChange,
-            onKeyDown: this.onKeyDown,
-            onFocus: () => { if (matches.length) this.setState({open: true}); },
-          })
-        )
-      ),
-      open && matches.length > 0 && h("div", {className: "fp-dropdown"},
-        matches.map((ps, idx) =>
-          h("div", {
-            key: ps.Id,
-            className: "fp-dropdown-item" + (idx === activeIndex ? " fp-active" : ""),
-            onMouseDown: (e) => { e.preventDefault(); this.pick(ps); },
-          },
-          h("div", {}, h(Mark, {text: ps.Label, query})),
-          h("div", {className: "fp-sub"},
-            h(Mark, {text: ps.Name, query}),
-            ps.PermissionSetGroupId ? " · Group" : (ps.Type ? " · " + ps.Type : ""))
+            type: "checkbox",
+            id: "fp-include-profiles",
+            checked: model.includeProfiles,
+            onChange: this.onToggleProfiles,
+          }),
+          h("label", {className: "slds-checkbox__label", htmlFor: "fp-include-profiles"},
+            h("span", {className: "slds-checkbox_faux"}),
+            h("span", {className: "slds-form-element__label"}, "Include profiles")
           )
         )
       ),
-      open && matches.length === 0 && query.trim() &&
-        h("div", {className: "fp-dropdown"}, h("div", {className: "fp-dropdown-item fp-sub"}, "No permission sets found"))
+      model.resultsVisible && model.searchDone && h("div", {className: "fp-results"},
+        results.length === 0
+          ? h("div", {className: "fp-result-item fp-sub"}, "No permission sets found for \u00ab" + model.searchedQuery + "\u00bb")
+          : h("div", {ref: this.setListEl},
+            results.map((ps, idx) =>
+              h("div", {
+                key: ps.Id,
+                className: "fp-result-item" + (idx === activeIndex ? " fp-active" : "")
+                  + (model.selectedPS && model.selectedPS.Id === ps.Id ? " fp-selected" : ""),
+                onClick: () => this.pick(ps),
+              },
+              h("div", {}, h(Mark, {text: ps.Label, query: model.searchedQuery})),
+              h("div", {className: "fp-sub"},
+                h(Mark, {text: ps.Name, query: model.searchedQuery}),
+                " \u00b7 ",
+                h("span", {className: "fp-kind fp-kind-" + ps.kind.replace(/ /g, "").toLowerCase()}, ps.kind))
+              )
+            )
+          ),
+        model.searchHasMore && h("div", {className: "fp-result-item fp-sub fp-more"},
+          "Showing the first " + SEARCH_LIMIT + " results, refine the search.")
+      )
     );
   }
 }
@@ -250,9 +343,15 @@ class App extends React.Component {
             !ps && h("div", {className: "fp-empty"}, "Search and select a permission set to see the fields it grants access to."),
             ps && h("div", {className: "slds-m-bottom_small slds-grid slds-grid_vertical-align-center slds-wrap"},
               h("div", {className: "slds-col slds-size_1-of-2"},
-                h("h2", {className: "slds-text-heading_small"}, ps.Label),
+                h("h2", {className: "slds-text-heading_small"},
+                  ps.Label,
+                  !model.resultsVisible && model.searchResults.length > 0 && h("a", {
+                    className: "slds-m-left_small slds-text-body_small",
+                    href: "#",
+                    onClick: (e) => { e.preventDefault(); model.showResults(); },
+                  }, "Change")),
                 h("p", {className: "slds-text-body_small slds-text-color_weak"},
-                  ps.Name + " · " + model.fields.length + " field permission(s)")
+                  ps.Name + " · " + ps.kind + " · " + model.fields.length + " field permission(s)")
               ),
               h("div", {className: "slds-col slds-size_1-of-2 slds-text-align_right slds-grid slds-grid_align-end slds-grid_vertical-align-center"},
                 h("input", {
