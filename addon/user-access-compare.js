@@ -41,6 +41,12 @@ const RECORD_PERMS = [
   ["HasTransferAccess", "Transfer"],
 ];
 
+const ROLE_GROUP_TYPES = ["Role", "RoleAndSubordinates", "RoleAndSubordinatesInternal"];
+const MEMBER_GROUP_TYPES = ["Regular", "Queue"];
+const GROUP_KIND = {Regular: "public group", Queue: "queue"};
+const MAX_GROUP_DEPTH = 5;
+const ACCESS_RANK = {None: 0, Read: 1, Edit: 2, Delete: 3, Transfer: 4, All: 5};
+
 function soqlString(s) {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
@@ -103,6 +109,7 @@ class Model {
     this.rows = [];
     this.sectionsShown = [];
     this.compared = null;        // {target, recordId} of the last comparison
+    this.why = null;             // origin of record access (Why? section)
     this.hasCompared = false;
     this.running = false;
     this.onlyDiff = true;
@@ -158,6 +165,7 @@ class Model {
       isActive: !!r.IsActive,
       profile: (r.Profile && r.Profile.Name) || "",
       role: (r.UserRole && r.UserRole.Name) || "",
+      roleId: r.UserRoleId || "",
       license: (r.Profile && r.Profile.UserLicense && r.Profile.UserLicense.Name) || "",
     };
   }
@@ -171,7 +179,7 @@ class Model {
     const raw = this.inputs[slot].trim();
     const label = "User " + slot.toUpperCase();
     if (!raw) throw new Error("Enter " + label + " (Id, Username or name).");
-    const fields = "Id, Name, Username, IsActive, Profile.Name, UserRole.Name, Profile.UserLicense.Name";
+    const fields = "Id, Name, Username, IsActive, Profile.Name, UserRoleId, UserRole.Name, Profile.UserLicense.Name";
     let where;
     if (USER_ID_RE.test(raw)) {
       where = "Id = '" + raw + "'";
@@ -324,6 +332,7 @@ class Model {
     const B = this.users.b;
     const rows = [];
     const sectionsShown = ["assignments", "customPermissions", "externalCredentials"];
+    this.why = null;
 
     // 1. Assignments (profile + permission sets + groups), active and not expired
     const psa = await this.loadAssignments([A.id, B.id]);
@@ -519,6 +528,12 @@ class Model {
           this.warnings.push("Could not check record access for " + user.name + ": " + err.message);
         }
       }
+      try {
+        this.why = await this.buildWhy(recordId, access);
+      } catch (err) {
+        console.error(err);
+        this.warnings.push("Why?: could not explain the record access: " + err.message);
+      }
       if (access.a || access.b) {
         RECORD_PERMS.forEach(([fieldKey, label], idx) => {
           rows.push({
@@ -558,6 +573,290 @@ class Model {
     this.compared = {target: targetLabel, recordId};
     this.hasCompared = true;
     this.filter = "";
+  }
+
+  // ----- Why? (origin of record access, read only) -----
+
+  roleSetupUrl(roleId) {
+    return this.sfLink + "/lightning/setup/Roles/page?address=%2F" + roleId;
+  }
+
+  groupSetupUrl(g) {
+    if (g.Type === "Queue") return this.sfLink + "/lightning/setup/Queues/page?address=%2Fp%2Fown%2FQueue%2Fd%3Fid%3D" + g.Id;
+    if (g.Type === "Regular") return this.sfLink + "/lightning/setup/PublicGroups/page?address=%2Fsetup%2Fown%2Fgroupdetail.jsp%3Fid%3D" + g.Id;
+    if (ROLE_GROUP_TYPES.includes(g.Type) && g.RelatedId) return this.roleSetupUrl(g.RelatedId);
+    return "";
+  }
+
+  roleName(roleId) {
+    const r = this.whyRoles.get(roleId);
+    return (r && r.Name) || roleId || "";
+  }
+
+  groupLabel(g) {
+    if (ROLE_GROUP_TYPES.includes(g.Type)) return this.roleName(g.RelatedId);
+    return g.Name || g.DeveloperName || g.Id;
+  }
+
+  /** Role ids above roleId (parent, grandparent…), with cycle protection. */
+  roleAncestors(roleId) {
+    const out = [];
+    const seen = new Set([roleId]);
+    let cur = this.whyRoles.get(roleId);
+    while (cur && cur.ParentRoleId && !seen.has(cur.ParentRoleId)) {
+      seen.add(cur.ParentRoleId);
+      out.push(cur.ParentRoleId);
+      cur = this.whyRoles.get(cur.ParentRoleId);
+    }
+    return out;
+  }
+
+  /** True when upperRoleId is above roleId in the role hierarchy. */
+  isAboveRole(upperRoleId, roleId) {
+    return !!upperRoleId && !!roleId && this.roleAncestors(roleId).includes(upperRoleId);
+  }
+
+  async loadGroups(ids) {
+    const todo = [...new Set(ids)].filter(id => !this.whyGroups.has(id));
+    if (!todo.length) return;
+    let recs;
+    try {
+      recs = await this.queryIn(list => "SELECT Id, Name, DeveloperName, Type, RelatedId, DoesIncludeBosses FROM Group WHERE Id IN (" + list + ")", todo);
+    } catch (err) {
+      console.warn("Group query with DoesIncludeBosses failed, retrying without it", err);
+      recs = await this.queryIn(list => "SELECT Id, Name, DeveloperName, Type, RelatedId FROM Group WHERE Id IN (" + list + ")", todo);
+    }
+    recs.forEach(r => this.whyGroups.set(r.Id, r));
+  }
+
+  async loadUsers(ids) {
+    const todo = [...new Set(ids)].filter(id => !this.whyUsers.has(id));
+    if (!todo.length) return;
+    const recs = await this.queryIn(list => "SELECT Id, Name, UserRoleId FROM User WHERE Id IN (" + list + ")", todo);
+    recs.forEach(r => this.whyUsers.set(r.Id, r));
+  }
+
+  /** Loads GroupMember level by level for public groups and queues (depth limit, no revisits). */
+  async expandGroups(rootIds, notices) {
+    const expanded = new Set();
+    const isMemberGroup = id => { const g = this.whyGroups.get(id); return !!g && MEMBER_GROUP_TYPES.includes(g.Type); };
+    let frontier = rootIds.filter(isMemberGroup);
+    let depth = 0;
+    while (frontier.length && depth < MAX_GROUP_DEPTH) {
+      frontier.forEach(id => expanded.add(id));
+      const gm = await this.queryIn(list => "SELECT GroupId, UserOrGroupId FROM GroupMember WHERE GroupId IN (" + list + ")", frontier);
+      const nested = new Set();
+      for (const r of gm) {
+        if (!this.whyMembers.has(r.GroupId)) this.whyMembers.set(r.GroupId, []);
+        this.whyMembers.get(r.GroupId).push(r.UserOrGroupId);
+        if (r.UserOrGroupId.startsWith("00G")) nested.add(r.UserOrGroupId);
+      }
+      await this.loadGroups([...nested]);
+      frontier = [...nested].filter(id => isMemberGroup(id) && !expanded.has(id));
+      depth++;
+    }
+    if (frontier.length) notices.push("Nested groups deeper than " + MAX_GROUP_DEPTH + " levels were not expanded: membership through them is not shown.");
+  }
+
+  /** Path explaining why the group includes the user, or null. */
+  groupIncludes(gid, user, visited) {
+    const g = this.whyGroups.get(gid);
+    if (!g || visited.has(gid)) return null;
+    visited.add(gid);
+    if (g.Type === "Role") {
+      return user.roleId && user.roleId === g.RelatedId ? "role " + this.roleName(g.RelatedId) : null;
+    }
+    if (g.Type === "RoleAndSubordinates" || g.Type === "RoleAndSubordinatesInternal") {
+      if (!user.roleId) return null;
+      if (user.roleId === g.RelatedId) return "role " + this.roleName(g.RelatedId);
+      return this.isAboveRole(g.RelatedId, user.roleId) ? "subordinate of role " + this.roleName(g.RelatedId) : null;
+    }
+    if (g.Type === "Organization") return "all internal users";
+    if (MEMBER_GROUP_TYPES.includes(g.Type)) {
+      const label = GROUP_KIND[g.Type] + " " + this.groupLabel(g);
+      const members = this.whyMembers.get(gid) || [];
+      if (members.includes(user.id)) return "member of " + label;
+      for (const m of members) {
+        if (!m.startsWith("00G")) continue;
+        const sub = this.groupIncludes(m, user, visited);
+        if (sub) return "member of " + label + " → " + sub;
+      }
+      return null;
+    }
+    this.whyUnresolved.add(g.Type);
+    return null;
+  }
+
+  /** Path when the user gets the row's access through the role hierarchy, or null. */
+  hierarchyPath(row, user) {
+    if (!user.roleId) return null;
+    const id = row.id;
+    if (id.startsWith("005")) {
+      const t = this.whyUsers.get(id);
+      return t && this.isAboveRole(user.roleId, t.UserRoleId)
+        ? "above " + t.Name + " (role " + this.roleName(t.UserRoleId) + ")" : null;
+    }
+    const g = this.whyGroups.get(id);
+    if (!g) return null;
+    if (ROLE_GROUP_TYPES.includes(g.Type)) {
+      return this.isAboveRole(user.roleId, g.RelatedId) ? "above role " + this.roleName(g.RelatedId) : null;
+    }
+    if (MEMBER_GROUP_TYPES.includes(g.Type) && g.DoesIncludeBosses) {
+      for (const m of this.whyMembers.get(id) || []) {
+        if (!m.startsWith("005")) continue;
+        const t = this.whyUsers.get(m);
+        if (t && this.isAboveRole(user.roleId, t.UserRoleId)) {
+          return "above " + t.Name + ", member of " + GROUP_KIND[g.Type] + " " + this.groupLabel(g) + " (Grant Access Using Hierarchies)";
+        }
+      }
+    }
+    return null;
+  }
+
+  rowInclusion(row, user) {
+    if (row.id.startsWith("005")) {
+      return row.id === user.id ? (row.isOwner ? "record owner" : "direct share") : null;
+    }
+    return this.groupIncludes(row.id, user, new Set());
+  }
+
+  whyLine(slot, why, real) {
+    const user = this.users[slot];
+    const cands = [];
+    for (const row of why.evalRows) {
+      const path = row[slot].path;
+      if (path) cands.push({level: row.level, text: path + (row.isOwner ? " (owner)" : " [" + row.rowCause + "]")});
+    }
+    for (const x of why.hierarchy[slot]) cands.push({level: x.level, text: x.path + " [hierarchy]"});
+    const best = cands.sort((x, y) => (ACCESS_RANK[y.level] || 0) - (ACCESS_RANK[x.level] || 0))[0];
+    let line;
+    if (best) {
+      line = user.name + " has " + best.level + " via " + best.text;
+    } else {
+      const others = why.shares.filter(r => !r.isOwner).slice(0, 3).map(r => r.level + " to " + r.typeLabel + " " + r.name + " [" + r.rowCause + "]");
+      line = user.name + " is not covered by sharing" + (others.length ? " (rows: " + others.join(", ") + ")" : "");
+    }
+    const realLevel = real && real.MaxAccessLevel;
+    if (realLevel) {
+      const explained = best ? (ACCESS_RANK[best.level] || 0) : 0;
+      const actual = ACCESS_RANK[realLevel] || 0;
+      if (actual > explained) line += "; real access is " + realLevel + ", not explained by sharing (View All/Modify All, team, territory or parent record?)";
+      else if (actual < explained) line += "; real access is only " + realLevel;
+    }
+    return line;
+  }
+
+  async buildWhy(recordId, access) {
+    const base = "/services/data/v" + apiVersion;
+    const why = {recordId, object: null, shareObject: null, owner: null, shares: [], evalRows: [], hierarchy: {a: [], b: []}, summary: "", notices: []};
+    this.whyGroups = new Map();
+    this.whyMembers = new Map();
+    this.whyUsers = new Map();
+    this.whyRoles = new Map();
+    this.whyUnresolved = new Set();
+
+    // Object from the record Id prefix, Share object confirmed with describe
+    if (!this.globalDescribe) this.globalDescribe = await sfConn.rest(base + "/sobjects/");
+    const sobjects = this.globalDescribe.sobjects || [];
+    const prefix = recordId.substring(0, 3);
+    const obj = sobjects.find(s => s.keyPrefix === prefix);
+    if (!obj) {
+      why.notices.push("No object found for the Id prefix " + prefix + ".");
+      return why;
+    }
+    why.object = obj.name;
+    const shareName = /__c$/.test(obj.name) ? obj.name.replace(/__c$/, "__Share") : obj.name + "Share";
+    const shareSo = sobjects.find(s => s.name.toLowerCase() === shareName.toLowerCase());
+
+    // Owner
+    let ownerId = null;
+    try {
+      const recs = await this.queryAll("SELECT OwnerId, Owner.Name FROM " + obj.name + " WHERE Id = '" + recordId + "'");
+      if (recs[0]) ownerId = recs[0].OwnerId;
+      else why.notices.push("Record " + recordId + " not found or not visible to you.");
+    } catch (err) {
+      why.notices.push(obj.name + " has no owner (" + err.message + "): access is probably controlled by the parent record.");
+    }
+
+    // Share rows
+    let shareRecs = [];
+    let accessField = null;
+    if (!shareSo) {
+      why.notices.push("No " + shareName + " object exists: the org-wide default is Public Read/Write or Controlled by Parent, so access does not come from sharing rows.");
+    } else {
+      why.shareObject = shareSo.name;
+      const d = await sfConn.rest(base + "/sobjects/" + encodeURIComponent(shareSo.name) + "/describe");
+      const names = (d.fields || []).map(f => f.name);
+      const parentField = names.includes(obj.name + "Id") ? obj.name + "Id" : (names.includes("ParentId") ? "ParentId" : null);
+      accessField = names.includes(obj.name + "AccessLevel") ? obj.name + "AccessLevel" : (names.includes("AccessLevel") ? "AccessLevel" : null);
+      if (!parentField || !accessField) {
+        why.notices.push("Could not identify the parent / access level fields of " + shareSo.name + ".");
+      } else {
+        shareRecs = await this.queryAll("SELECT UserOrGroupId, " + accessField + ", RowCause FROM " + shareSo.name
+          + " WHERE " + parentField + " = '" + recordId + "'");
+      }
+    }
+
+    // Roles, groups, members, users
+    this.whyRoles = new Map((await this.queryAll("SELECT Id, Name, ParentRoleId FROM UserRole")).map(r => [r.Id, r]));
+    const ids = shareRecs.map(r => r.UserOrGroupId);
+    if (ownerId) ids.push(ownerId);
+    const groupIds = ids.filter(id => id.startsWith("00G"));
+    await this.loadGroups(groupIds);
+    await this.expandGroups(groupIds, why.notices);
+    const bossMembers = [];
+    for (const [gid, members] of this.whyMembers) {
+      const g = this.whyGroups.get(gid);
+      if (g && g.DoesIncludeBosses) members.filter(m => m.startsWith("005")).forEach(m => bossMembers.push(m));
+    }
+    await this.loadUsers(ids.filter(id => id.startsWith("005")).concat(bossMembers));
+
+    const describeId = id => {
+      if (id.startsWith("005")) {
+        const u = this.whyUsers.get(id);
+        return {name: (u && u.Name) || id, typeLabel: "User", url: this.userSetupUrl({id})};
+      }
+      const g = this.whyGroups.get(id);
+      return g ? {name: this.groupLabel(g), typeLabel: g.Type, url: this.groupSetupUrl(g)} : {name: id, typeLabel: "?", url: ""};
+    };
+
+    // Owner block
+    if (ownerId) {
+      const o = describeId(ownerId);
+      why.owner = {id: ownerId, name: o.name, url: o.url, type: ownerId.startsWith("005") ? "User" : (o.typeLabel === "Queue" ? "Queue" : o.typeLabel), roleName: "", roleUrl: "", a: null, b: null};
+      if (ownerId.startsWith("005")) {
+        const u = this.whyUsers.get(ownerId);
+        if (u && u.UserRoleId) { why.owner.roleName = this.roleName(u.UserRoleId); why.owner.roleUrl = this.roleSetupUrl(u.UserRoleId); }
+      } else {
+        why.owner.a = this.groupIncludes(ownerId, this.users.a, new Set());
+        why.owner.b = this.groupIncludes(ownerId, this.users.b, new Set());
+      }
+    }
+
+    // Rows with inclusion per user
+    const makeRow = (id, level, rowCause) => {
+      const row = Object.assign({id, level, rowCause, isOwner: rowCause === "Owner"}, describeId(id));
+      row.a = {path: this.rowInclusion(row, this.users.a)};
+      row.b = {path: this.rowInclusion(row, this.users.b)};
+      return row;
+    };
+    why.shares = shareRecs.map(r => makeRow(r.UserOrGroupId, r[accessField], r.RowCause))
+      .sort((x, y) => (y.isOwner - x.isOwner) || (ACCESS_RANK[y.level] || 0) - (ACCESS_RANK[x.level] || 0) || x.name.localeCompare(y.name));
+    why.evalRows = why.shares.length ? why.shares : (ownerId ? [makeRow(ownerId, "All", "Owner")] : []);
+
+    // Role hierarchy
+    for (const slot of ["a", "b"]) {
+      for (const row of why.evalRows) {
+        if (row[slot].path) continue;
+        const path = this.hierarchyPath(row, this.users[slot]);
+        if (path) why.hierarchy[slot].push({path, level: row.level});
+      }
+    }
+    if (obj.custom) why.notices.push("Grant Access Using Hierarchies is assumed enabled; it can be disabled for custom objects.");
+    if (this.whyUnresolved.size) why.notices.push("Group types not resolved: " + [...this.whyUnresolved].join(", ") + ".");
+
+    why.summary = this.whyLine("a", why, access.a) + "; " + this.whyLine("b", why, access.b) + ".";
+    return why;
   }
 
   // ----- View helpers -----
@@ -601,6 +900,9 @@ class Model {
       userB: strip(this.users.b),
       target: this.compared.target,
       recordId: this.compared.recordId || null,
+      why: this.why ? {object: this.why.object, shareObject: this.why.shareObject, owner: this.why.owner, summary: this.why.summary,
+        shares: this.why.shares.map(r => ({id: r.id, name: r.name, type: r.typeLabel, level: r.level, rowCause: r.rowCause, viaA: r.a.path, viaB: r.b.path})),
+        hierarchy: this.why.hierarchy, notices: this.why.notices} : null,
       rows: this.visibleRows().map(row => ({
         section: row.section,
         item: row.item,
@@ -741,6 +1043,73 @@ class App extends React.Component {
     );
   }
 
+  renderWhyIncl(path) {
+    if (!path) return h("span", {className: "slds-badge uac-badge-no"}, "✗ No");
+    return h("div", {},
+      h("span", {className: "slds-badge uac-badge-yes"}, "✓ Yes"),
+      h("div", {className: "uac-sub"}, path)
+    );
+  }
+
+  renderWhy() {
+    const model = this.props.vm;
+    const why = model.why;
+    if (!why) return null;
+    const A = model.users.a;
+    const B = model.users.b;
+    const link = (url, text) => url ? h("a", {href: url, target: "_blank", title: "Open in Setup"}, text) : h("span", {}, text);
+    const membership = (label, user, path) => h("div", {className: "uac-sub"}, label + " · " + user.name + ": " + (path ? "member (" + path + ")" : "not a member"));
+    return h("div", {className: "slds-m-bottom_medium uac-why"},
+      h("h3", {className: "slds-text-heading_small uac-section-title"},
+        "Why?",
+        h("span", {className: "uac-count"}, [why.object, why.shareObject].filter(Boolean).join(" · "))
+      ),
+      why.summary && h("div", {className: "uac-why-summary"}, why.summary),
+      why.notices.map((n, i) => h("div", {key: "wn" + i, className: "uac-why-notice"}, n)),
+      why.owner && h("div", {className: "uac-why-owner"},
+        h("strong", {}, "Owner: "), link(why.owner.url, why.owner.name), " · " + why.owner.type,
+        why.owner.roleName && h("span", {}, " · role ", link(why.owner.roleUrl, why.owner.roleName)),
+        why.owner.type === "Queue" && membership("User A", A, why.owner.a),
+        why.owner.type === "Queue" && membership("User B", B, why.owner.b)
+      ),
+      why.shares.length > 0 && h("table", {className: "slds-table slds-table_cell-buffer slds-table_bordered uac-table"},
+        h("thead", {},
+          h("tr", {className: "slds-line-height_reset"},
+            h("th", {style: {width: "22%"}}, "User / Group"),
+            h("th", {style: {width: "12%"}}, "Group type"),
+            h("th", {style: {width: "9%"}}, "Access"),
+            h("th", {style: {width: "11%"}}, "RowCause"),
+            h("th", {style: {width: "23%"}}, "Includes User A · " + A.name),
+            h("th", {style: {width: "23%"}}, "Includes User B · " + B.name)
+          )
+        ),
+        h("tbody", {},
+          why.shares.map((row, idx) =>
+            h("tr", {key: "ws" + idx, className: (!!row.a.path !== !!row.b.path) ? "uac-diff" : ""},
+              h("td", {}, link(row.url, row.name)),
+              h("td", {}, row.typeLabel),
+              h("td", {}, h("span", {className: "uac-text-value"}, row.level)),
+              h("td", {}, row.rowCause),
+              h("td", {}, this.renderWhyIncl(row.a.path)),
+              h("td", {}, this.renderWhyIncl(row.b.path))
+            )
+          )
+        )
+      ),
+      why.evalRows.length > 0 && h("div", {className: "uac-why-hier"},
+        h("strong", {}, "Role hierarchy"),
+        [["a", A], ["b", B]].map(([slot, user]) =>
+          h("div", {key: "wh" + slot, className: "uac-sub"},
+            user.name + ": " + (why.hierarchy[slot].length
+              ? why.hierarchy[slot].map(x => x.path + " → " + x.level).join("; ")
+              : "not above any user or role with access"))
+        )
+      ),
+      h("p", {className: "uac-footnote"},
+        "Not resolved here: View All / Modify All (system or object permissions), teams (CaseTeamMember, AccountTeamMember, OpportunityTeamMember), territories and implicit access from parent records.")
+    );
+  }
+
   render() {
     const model = this.props.vm;
     document.title = model.title;
@@ -806,6 +1175,7 @@ class App extends React.Component {
               ),
               SECTIONS.filter(s => model.sectionsShown.includes(s.key))
                 .map(s => this.renderSection(s, visible.filter(r => r.section === s.key))),
+              this.renderWhy(),
               h("p", {className: "uac-footnote"},
                 "Note: system permissions such as View All Data or Modify All Data also grant object access and are not included in this comparison.")
             )

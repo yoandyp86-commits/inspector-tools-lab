@@ -198,3 +198,24 @@
   color: #706e6b;
   margin-top: .5rem;
 }
+
+.uac-why-summary {
+  background: #f3f9ff;
+  border-left: 3px solid #0176d3;
+  padding: .5rem .75rem;
+  margin-bottom: .5rem;
+  font-weight: 600;
+}
+
+.uac-why-notice {
+  background: #fef7e6;
+  border-left: 3px solid #dd7a01;
+  padding: .35rem .75rem;
+  margin-bottom: .35rem;
+  font-size: .8125rem;
+}
+
+.uac-why-owner,
+.uac-why-hier {
+  margin: .5rem 0;
+}
