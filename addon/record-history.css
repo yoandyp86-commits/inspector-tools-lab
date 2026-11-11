@@ -67,9 +67,25 @@
   word-break: break-word;
 }
 
-.rh-save td {
+.rh-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.rh-sortable:hover {
   background: #f3f2f2;
-  font-size: .8125rem;
+}
+
+.rh-sorted {
+  color: #0176d3;
+}
+
+.rh-arrow {
+  font-size: .625rem;
+}
+
+.rh-date {
+  font-variant-numeric: tabular-nums;
 }
 
 .rh-count {

@@ -169,6 +169,44 @@ export function filterSaves(saves, fieldKey, userId) {
   return out;
 }
 
+/** Flattens saves into one row per change, keeping the save's date and user on each row. */
+export function flattenSaves(saves) {
+  const rows = [];
+  let seq = 0;
+  for (const s of saves) {
+    for (const c of s.changes) {
+      rows.push(Object.assign({}, c, {seq: seq++, date: s.date, userId: s.userId, user: s.user, synthetic: !!s.synthetic}));
+    }
+  }
+  return rows;
+}
+
+function displayText(text, id) {
+  return text != null ? String(text) : (id || "");
+}
+
+const SORT_GETTERS = {
+  date: r => r.date || "",
+  field: r => r.label || "",
+  old: r => (r.special ? "" : displayText(r.oldText, r.oldId)),
+  new: r => (r.special ? "" : displayText(r.newText, r.newId)),
+  createdBy: r => r.user || r.userId || "",
+};
+
+/** Sorts flat rows by column key and direction ("asc" | "desc"); ties keep the original (newest first) order. */
+export function sortRows(rows, key, dir) {
+  const get = SORT_GETTERS[key] || SORT_GETTERS.date;
+  const sign = dir === "asc" ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    const va = get(a);
+    const vb = get(b);
+    const cmp = key === "date"
+      ? (va < vb ? -1 : va > vb ? 1 : 0)
+      : va.localeCompare(vb, undefined, {numeric: true, sensitivity: "base"});
+    return cmp !== 0 ? cmp * sign : a.seq - b.seq;
+  });
+}
+
 class Model {
   constructor(sfHost, recordId) {
     this.reactCallback = null;
@@ -186,6 +224,8 @@ class Model {
     this.showTracked = false;
     this.fieldFilter = "";
     this.userFilter = "";
+    this.sortKey = "date";
+    this.sortDir = "desc";
     this.globalDescribe = null;
 
     this.userInfoModel = new UserInfoModel((promise) => {
@@ -252,6 +292,8 @@ class Model {
     this.fieldFilter = "";
     this.userFilter = "";
     this.showTracked = false;
+    this.sortKey = "date";
+    this.sortDir = "desc";
     this.spinnerCount++;
     this.didUpdate();
     try {
@@ -367,15 +409,25 @@ class Model {
     return filterSaves(this.result.saves, this.fieldFilter, this.userFilter);
   }
 
-  downloadCsv() {
-    const header = ["Date", "User", "Field", "Field API Name", "Old Value", "New Value"].join(",");
-    const lines = [];
-    for (const s of this.visibleSaves()) {
-      for (const c of s.changes) {
-        lines.push([formatDateTime(s.date), s.user, c.label, c.api,
-          c.oldText != null ? c.oldText : (c.oldId || ""), c.newText != null ? c.newText : (c.newId || "")].map(csvCell).join(","));
-      }
+  visibleRows() {
+    return sortRows(flattenSaves(this.visibleSaves()), this.sortKey, this.sortDir);
+  }
+
+  setSort(key) {
+    if (this.sortKey === key) {
+      this.sortDir = this.sortDir === "asc" ? "desc" : "asc";
+    } else {
+      this.sortKey = key;
+      this.sortDir = key === "date" ? "desc" : "asc";
     }
+    this.didUpdate();
+  }
+
+  downloadCsv() {
+    const header = ["Date", "CreatedBy", "Field", "Field API Name", "Old Value", "New Value"].join(",");
+    const lines = this.visibleRows().map(r =>
+      [formatDateTime(r.date), r.user, r.label, r.api,
+        displayText(r.oldText, r.oldId), displayText(r.newText, r.newId)].map(csvCell).join(","));
     downloadCsvFile(header + "\n" + lines.join("\n"), "record-history-" + this.result.record.id + ".csv");
   }
 }
@@ -435,35 +487,46 @@ class App extends React.Component {
     );
   }
 
-  renderTimeline(saves) {
+  renderSortHeader(key, label, width) {
+    const model = this.props.vm;
+    const active = model.sortKey === key;
+    const arrow = active ? (model.sortDir === "asc" ? " ▲" : " ▼") : "";
+    return h("th", {
+      key,
+      style: {width},
+      className: "rh-sortable" + (active ? " rh-sorted" : ""),
+      title: "Sort by " + label,
+      "aria-sort": active ? (model.sortDir === "asc" ? "ascending" : "descending") : "none",
+      onClick: () => model.setSort(key),
+    }, label, h("span", {className: "rh-arrow"}, arrow));
+  }
+
+  renderTable(rows) {
     const model = this.props.vm;
     return h("table", {className: "slds-table slds-table_cell-buffer slds-table_bordered rh-table"},
       h("thead", {},
         h("tr", {className: "slds-line-height_reset"},
-          h("th", {style: {width: "30%"}}, "Field"),
-          h("th", {style: {width: "35%"}}, "Old value"),
-          h("th", {style: {width: "35%"}}, "New value")
+          this.renderSortHeader("date", "Date/time", "13%"),
+          this.renderSortHeader("field", "Field", "20%"),
+          this.renderSortHeader("old", "Old value", "25%"),
+          this.renderSortHeader("new", "New value", "25%"),
+          this.renderSortHeader("createdBy", "CreatedBy", "17%")
         )
       ),
-      saves.map(s =>
-        h("tbody", {key: s.key},
-          h("tr", {className: "rh-save"},
-            h("td", {colSpan: 3},
-              h("strong", {}, formatDateTime(s.date)),
-              " · ",
-              s.userId ? h("a", {href: model.userSetupUrl(s.userId), target: "_blank", title: "Open user in Setup"}, s.user || s.userId) : (s.user || "Unknown user"),
-              s.changes.length > 1 && h("span", {className: "rh-count"}, s.changes.length + " fields in the same save"),
-              s.synthetic && h("span", {className: "rh-count"}, "from the record, not from history")
-            )
-          ),
-          s.changes.map((c, i) =>
-            h("tr", {key: i},
-              c.special
-                ? h("td", {colSpan: 3}, h("span", {className: "slds-badge rh-badge-event"}, c.label))
-                : h("td", {}, c.label, c.api && c.api !== c.label && h("div", {className: "rh-api"}, c.api)),
-              !c.special && h("td", {}, this.renderValue(c.oldText, c.oldId, c)),
-              !c.special && h("td", {}, this.renderValue(c.newText, c.newId, c))
-            )
+      h("tbody", {},
+        rows.map(r =>
+          h("tr", {key: r.seq},
+            h("td", {className: "rh-date"}, formatDateTime(r.date)),
+            r.special
+              ? h("td", {colSpan: 3},
+                h("span", {className: "slds-badge rh-badge-event"}, r.label),
+                r.synthetic && h("span", {className: "rh-count"}, "from the record, not from history"))
+              : h("td", {}, r.label, r.api && r.api !== r.label && h("div", {className: "rh-api"}, r.api)),
+            !r.special && h("td", {}, this.renderValue(r.oldText, r.oldId, r)),
+            !r.special && h("td", {}, this.renderValue(r.newText, r.newId, r)),
+            h("td", {}, r.userId
+              ? h("a", {href: model.userSetupUrl(r.userId), target: "_blank", title: "Open user in Setup"}, r.user || r.userId)
+              : (r.user || "Unknown user"))
           )
         )
       )
@@ -480,7 +543,8 @@ class App extends React.Component {
           "Field history tracking is not enabled for " + res.objectLabel + "."));
     }
     const saves = model.visibleSaves();
-    const changeCount = saves.reduce((n, s) => n + s.changes.length, 0);
+    const rows = model.visibleRows();
+    const changeCount = rows.length;
     const fieldOptions = model.fieldOptions();
     const userOptions = model.userOptions();
     return h("div", {},
@@ -500,8 +564,8 @@ class App extends React.Component {
           changeCount + " change(s) in " + saves.length + " save(s)"),
         h("button", {className: "slds-button slds-button_neutral", disabled: changeCount === 0, onClick: this.onCsv, title: "Download the visible changes as CSV"}, "Download CSV")
       ),
-      saves.length > 0
-        ? this.renderTimeline(saves)
+      rows.length > 0
+        ? this.renderTable(rows)
         : h("div", {className: "rh-empty"}, res.saves.length === 0 ? "No history for this record." : "No changes match the filters.")
     );
   }

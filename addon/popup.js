@@ -1380,6 +1380,12 @@ class AllDataBoxTools extends React.PureComponent {
         title: "Check which profiles and permission sets grant access to a field",
       },
       {
+        ref: "whereIsCpBtn",
+        href: "where-is-cp.html?" + hostArg,
+        label: "Where is CP",
+        title: "See which profiles, permission sets, groups and users have a custom permission, and where it is used",
+      },
+      {
         ref: "userAccessCompareBtn",
         href: "user-access-compare.html?" + hostArg,
         label: "User Access Compare",
