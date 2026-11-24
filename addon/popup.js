@@ -1977,7 +1977,7 @@ class AllDataBoxSObject extends React.PureComponent {
       return null;
     }
     let sobject = sobjectsList.find(
-      (sobject) => sobject.name.toLowerCase() == query.toLowerCase()
+      (sobject) => (sobject.name || "").toLowerCase() == query.toLowerCase()
     );
     let queryKeyPrefix = query.substring(0, 3);
     if (!sobject) {
@@ -2013,8 +2013,8 @@ class AllDataBoxSObject extends React.PureComponent {
     let res = sobjectsList
       .filter(
         (sobject) =>
-          sobject.name.toLowerCase().includes(query.toLowerCase())
-          || sobject.label.toLowerCase().includes(query.toLowerCase())
+          (sobject.name || "").toLowerCase().includes(query.toLowerCase())
+          || (sobject.label || "").toLowerCase().includes(query.toLowerCase())
           || sobject.keyPrefix == queryKeyPrefix
       )
       .map((sobject) => ({
@@ -2024,19 +2024,19 @@ class AllDataBoxSObject extends React.PureComponent {
         relevance:
           (sobject.keyPrefix == queryKeyPrefix
             ? 2
-            : sobject.name.toLowerCase() == query.toLowerCase()
+            : (sobject.name || "").toLowerCase() == query.toLowerCase()
               ? 3
-              : sobject.label.toLowerCase() == query.toLowerCase()
+              : (sobject.label || "").toLowerCase() == query.toLowerCase()
                 ? 4
-                : sobject.name.toLowerCase().startsWith(query.toLowerCase())
+                : (sobject.name || "").toLowerCase().startsWith(query.toLowerCase())
                   ? 5
-                  : sobject.label.toLowerCase().startsWith(query.toLowerCase())
+                  : (sobject.label || "").toLowerCase().startsWith(query.toLowerCase())
                     ? 6
-                    : sobject.name.toLowerCase().includes("__" + query.toLowerCase())
+                    : (sobject.name || "").toLowerCase().includes("__" + query.toLowerCase())
                       ? 7
-                      : sobject.name.toLowerCase().includes("_" + query.toLowerCase())
+                      : (sobject.name || "").toLowerCase().includes("_" + query.toLowerCase())
                         ? 8
-                        : sobject.label.toLowerCase().includes(" " + query.toLowerCase())
+                        : (sobject.label || "").toLowerCase().includes(" " + query.toLowerCase())
                           ? 9
                           : 10) + (sobject.availableApis.length == 0 ? 20 : 0),
       }));

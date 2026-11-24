@@ -1032,6 +1032,21 @@ export class DataCache {
  * @param {string} sfHost - Salesforce host (for cache validation)
  * @returns {Promise<Array>} Sobjects list (from cache or fetched from API)
  */
+/**
+ * Removes invalid entries (null/empty name) and normalizes label/availableApis.
+ * Prevents "Cannot read properties of null (reading 'toLowerCase')" in the popup.
+ */
+function sanitizeSobjectsList(list) {
+  if (!Array.isArray(list)) return list;
+  return list
+    .filter((s) => s && typeof s.name === "string" && s.name.length > 0)
+    .map((s) => ({
+      ...s,
+      label: typeof s.label === "string" ? s.label : s.name,
+      availableApis: Array.isArray(s.availableApis) ? s.availableApis : [],
+    }));
+}
+
 export async function getSobjectsList(sfHost) {
   // Check if caching is enabled
   const cacheEnabled = isSettingEnabled(Constants.ENABLE_SOBJECTS_LIST_CACHE, true);
@@ -1041,7 +1056,7 @@ export async function getSobjectsList(sfHost) {
   if (cacheEnabled) {
     const cached = await DataCache.getCachedData(Constants.CACHE_SOBJECTS_LIST, sfHost, true, true);
     if (cached) {
-      const sobjectsList = cached.data ?? [];
+      const sobjectsList = sanitizeSobjectsList(cached.data ?? []);
 
       //if we don't do the Preload SObjects before popup opens, we will refresh the cache in background
       if (!isSettingEnabled(Constants.PRELOAD_SOBJECTS_BEFORE_POPUP)){
@@ -1090,6 +1105,7 @@ async function fetchSobjectsList(sfHost, currentFetch, cacheEnabled, cachedSobje
       },
       api
     ) {
+      if (!name) return; // Skip entities without API name
       label = label && label.match("__MISSING") ? "" : label; // Error is added to the label if no label exists
       let entity = entityMap.get(name);
       // Each API call enhances the data, only the Name fields are present for each call.
@@ -1227,7 +1243,7 @@ async function fetchSobjectsList(sfHost, currentFetch, cacheEnabled, cachedSobje
       ]);
     }
 
-    const sobjectsList = Array.from(entityMap.values());
+    const sobjectsList = sanitizeSobjectsList(Array.from(entityMap.values()));
 
     if (cacheEnabled && sobjectsList?.length > 0) {
       await DataCache.setCachedData(Constants.CACHE_SOBJECTS_LIST, sfHost, sobjectsList, true, true, currentFetch, true);
