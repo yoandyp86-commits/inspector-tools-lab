@@ -140,3 +140,48 @@
 .wc-table th {
   white-space: nowrap;
 }
+
+.wc-badge-warn {
+  background: #fef1cd;
+  color: #8c4b02;
+}
+
+.wc-badge-error {
+  background: #fddde3;
+  color: #ba0517;
+}
+
+.wc-badge-session {
+  background: #e3f3ff;
+  color: #014486;
+}
+
+.wc-expand {
+  width: 1.5rem;
+  justify-content: center;
+  color: #0176d3;
+}
+
+.wc-wrap {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.wc-formula-row td {
+  background: #fafaf9;
+}
+
+.wc-formula {
+  margin: 0;
+  padding: .5rem .75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, Menlo, monospace;
+  font-size: .8125rem;
+}
+
+.wc-formula mark,
+.wc-table code mark {
+  background: #ffeb3b;
+  padding: 0;
+}

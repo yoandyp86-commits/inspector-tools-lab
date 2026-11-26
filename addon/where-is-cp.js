@@ -8,14 +8,19 @@ let h = React.createElement;
 const SEARCH_LIMIT = 50;
 const ID_CHUNK = 150;
 const USAGE_LIMIT = 2000;
+const COMPOSITE_SIZE = 25;
+const MATCH_MAX = 200;
 
 const TABS = [
   {id: "profiles", label: "Profiles"},
   {id: "permSets", label: "Permission Sets"},
   {id: "groups", label: "Permission Set Groups"},
   {id: "users", label: "Users"},
+  {id: "validation", label: "Validation Rules"},
+  {id: "code", label: "Code"},
   {id: "usage", label: "Usage"},
 ];
+const SECTION_IDS = TABS.map(t => t.id);
 
 function chunk(list, size) {
   const out = [];
@@ -40,6 +45,37 @@ function formatDate(value) {
 
 function apiNameOf(ns, name) {
   return ns ? ns + "__" + name : name;
+}
+
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Regex for "<prefix><CP API name>" not followed by another identifier character. */
+function cpRegex(prefixPattern, apiName, global) {
+  return new RegExp(prefixPattern + escapeRegex(apiName) + "(?![A-Za-z0-9_])", global ? "gi" : "i");
+}
+const PERMISSION_PREFIX = "\\$Permission\\.";
+const LWC_PREFIX = "@salesforce/customPermission/";
+
+/** Lines of a source that match the regex: [{line, text}]. */
+function matchLines(source, regex) {
+  const out = [];
+  if (!source || !regex.test(source)) return out;
+  source.split(/\r?\n/).forEach((text, i) => {
+    if (regex.test(text)) {
+      const t = text.trim();
+      out.push({line: i + 1, text: t.length > MATCH_MAX ? t.slice(0, MATCH_MAX) + "\u2026" : t});
+    }
+  });
+  return out;
+}
+
+function statusBadgeClass(status) {
+  if (status === "Updated") return "wc-badge-on";
+  if (status === "Failed") return "wc-badge-error";
+  if (status === "Outdated" || status === "Updating") return "wc-badge-warn";
+  return "wc-badge-off";
 }
 
 function emptySection() {
@@ -68,6 +104,9 @@ class Model {
     this.selectedCP = null;   // {Id, DeveloperName, MasterLabel, NamespacePrefix, Description}
     this.loadSeq = 0;         // ignores results of a previous selection
     this.activeTab = "profiles";
+    // Org-wide scans, independent of the selected CP: loaded once per session
+    this.vrCache = null;      // Promise<{rules, failed}>
+    this.codeCache = null;    // Promise<{files, failedTypes}>
     this.resetResults();
 
     this.userInfoModel = new UserInfoModel((promise) => {
@@ -85,15 +124,12 @@ class Model {
   }
 
   resetResults() {
-    this.sections = {
-      profiles: emptySection(),
-      permSets: emptySection(),
-      groups: emptySection(),
-      users: emptySection(),
-      usage: emptySection(),
-    };
-    this.filters = {profiles: "", permSets: "", groups: "", users: "", usage: ""};
+    this.sections = {};
+    this.filters = {};
+    SECTION_IDS.forEach(id => { this.sections[id] = emptySection(); this.filters[id] = ""; });
     this.activeOnly = true;
+    this.activeRulesOnly = false;
+    this.expanded = {};
     this.usageType = "";
     this.warnings = [];
     this.soqlLog = [];
@@ -182,6 +218,8 @@ class Model {
 
   setTab(id) { this.activeTab = id; this.didUpdate(); }
 
+  toggleExpanded(id) { this.expanded[id] = !this.expanded[id]; this.didUpdate(); }
+
   // ----- Loading -----
 
   setSection(name, patch) {
@@ -192,13 +230,16 @@ class Model {
   async loadAll(cp) {
     const seq = ++this.loadSeq;
     const alive = () => seq === this.loadSeq;
-    ["profiles", "permSets", "groups", "users", "usage"].forEach(s => { this.sections[s].status = "loading"; });
+    SECTION_IDS.forEach(s => { this.sections[s].status = "loading"; });
     this.spinnerCount++;
     this.didUpdate();
     try {
-      const usagePromise = this.loadUsage(cp, alive);
-      await this.loadAssignments(cp, alive);
-      await usagePromise;
+      await Promise.all([
+        this.loadAssignments(cp, alive),
+        this.loadUsage(cp, alive),
+        this.loadValidation(cp, alive),
+        this.loadCode(cp, alive),
+      ]);
     } finally {
       this.spinnerCount--;
       this.didUpdate();
@@ -209,9 +250,11 @@ class Model {
     // 1. Profiles and permission sets that contain the custom permission
     let profiles = [];
     let permSets = [];
+    const effectiveGroups = {}; // PermissionSetGroupId -> {session}
     try {
       const sea = await this.queryAll("SELECT ParentId, Parent.Name, Parent.Label, Parent.Type, Parent.NamespacePrefix,"
-        + " Parent.IsOwnedByProfile, Parent.ProfileId, Parent.Profile.Name, Parent.PermissionSetGroupId"
+        + " Parent.IsOwnedByProfile, Parent.ProfileId, Parent.Profile.Name, Parent.PermissionSetGroupId,"
+        + " Parent.HasActivationRequired"
         + " FROM SetupEntityAccess WHERE SetupEntityType = 'CustomPermission' AND SetupEntityId = '" + cp.Id + "'");
       if (!alive()) return;
       for (const r of sea) {
@@ -223,12 +266,16 @@ class Model {
             name: (p.Profile && p.Profile.Name) || p.Label || "(unknown profile)",
             link: this.sfLink + "/lightning/setup/EnhancedProfiles/page?address=%2F" + p.ProfileId,
           });
-        } else if (p.Type === "Regular" || (!p.Type && !p.PermissionSetGroupId)) {
+        } else if (p.PermissionSetGroupId) {
+          // Aggregate permission set of a group: permissions already calculated (muting applied)
+          effectiveGroups[p.PermissionSetGroupId] = {session: !!p.HasActivationRequired};
+        } else if (p.Type !== "Muting") {
           permSets.push({
             id: r.ParentId,
             label: p.Label || p.Name,
             apiName: apiNameOf(p.NamespacePrefix, p.Name),
             license: "",
+            session: !!p.HasActivationRequired,
             link: this.sfLink + "/lightning/setup/PermSets/page?address=%2F" + r.ParentId,
           });
         }
@@ -262,32 +309,37 @@ class Model {
       }
     }
 
-    // 2. Permission set groups that include any of those permission sets
+    // 2. Permission set groups: effective ones (aggregate rows above) plus groups that contain
+    //    a permission set with the CP but do not grant it (muted or not recalculated)
     let groups = [];
     try {
+      const viaByGroup = {};
       if (permSets.length) {
-        const comps = await this.queryIn(list => "SELECT PermissionSetGroupId, PermissionSetGroup.DeveloperName,"
-          + " PermissionSetGroup.MasterLabel, PermissionSetGroup.NamespacePrefix, PermissionSetGroup.Status,"
-          + " PermissionSetId, PermissionSet.Label"
+        const comps = await this.queryIn(list => "SELECT PermissionSetGroupId, PermissionSetId, PermissionSet.Label"
           + " FROM PermissionSetGroupComponent WHERE PermissionSetId IN (" + list + ")", permSets.map(p => p.id));
         if (!alive()) return;
-        const byGroup = {};
         for (const r of comps) {
-          const g = r.PermissionSetGroup || {};
-          if (!byGroup[r.PermissionSetGroupId]) {
-            byGroup[r.PermissionSetGroupId] = {
-              id: r.PermissionSetGroupId,
-              label: g.MasterLabel || g.DeveloperName,
-              apiName: apiNameOf(g.NamespacePrefix, g.DeveloperName),
-              status: g.Status || "",
-              viaPS: [],
-              link: this.sfLink + "/lightning/setup/PermSetGroups/page?address=%2F" + r.PermissionSetGroupId,
-            };
-          }
           const psLabel = (r.PermissionSet && r.PermissionSet.Label) || r.PermissionSetId;
-          if (!byGroup[r.PermissionSetGroupId].viaPS.includes(psLabel)) byGroup[r.PermissionSetGroupId].viaPS.push(psLabel);
+          const list = viaByGroup[r.PermissionSetGroupId] || (viaByGroup[r.PermissionSetGroupId] = []);
+          if (!list.includes(psLabel)) list.push(psLabel);
         }
-        groups = Object.keys(byGroup).map(k => byGroup[k]).sort((a, b) => a.label.localeCompare(b.label));
+      }
+      const groupIds = Object.keys(effectiveGroups);
+      Object.keys(viaByGroup).forEach(id => { if (!groupIds.includes(id)) groupIds.push(id); });
+      if (groupIds.length) {
+        const psg = await this.queryIn(list => "SELECT Id, DeveloperName, MasterLabel, NamespacePrefix, Status"
+          + " FROM PermissionSetGroup WHERE Id IN (" + list + ")", groupIds);
+        if (!alive()) return;
+        groups = psg.map(g => ({
+          id: g.Id,
+          label: g.MasterLabel || g.DeveloperName,
+          apiName: apiNameOf(g.NamespacePrefix, g.DeveloperName),
+          status: g.Status || "",
+          granted: !!effectiveGroups[g.Id],
+          session: !!(effectiveGroups[g.Id] && effectiveGroups[g.Id].session),
+          viaPS: viaByGroup[g.Id] || [],
+          link: this.sfLink + "/lightning/setup/PermSetGroups/page?address=%2F" + g.Id,
+        })).sort((a, b) => (b.granted - a.granted) || a.label.localeCompare(b.label));
       }
       this.setSection("groups", {status: "done", rows: groups});
     } catch (err) {
@@ -305,7 +357,8 @@ class Model {
       const psIds = profiles.map(p => p.psId).concat(permSets.map(p => p.id));
       const recs = [];
       if (psIds.length) recs.push(...await this.queryIn(list => base + "PermissionSetId IN (" + list + ")", psIds));
-      if (groups.length) recs.push(...await this.queryIn(list => base + "PermissionSetGroupId IN (" + list + ")", groups.map(g => g.id)));
+      const grantingGroups = groups.filter(g => g.granted).map(g => g.id);
+      if (grantingGroups.length) recs.push(...await this.queryIn(list => base + "PermissionSetGroupId IN (" + list + ")", grantingGroups));
       if (!alive()) return;
       this.setSection("users", {status: "done", rows: this.buildUsers(recs)});
     } catch (err) {
@@ -381,6 +434,137 @@ class Model {
     }
   }
 
+  // ----- Validation rules -----
+
+  /** All validation rules with their formula. Loaded once per session (5 composite calls per 115 rules). */
+  scanValidationRules() {
+    if (!this.vrCache) {
+      this.vrCache = (async () => {
+        const list = await this.queryAll("SELECT Id, ValidationName, Active, ErrorMessage, NamespacePrefix,"
+          + " EntityDefinition.QualifiedApiName FROM ValidationRule", true);
+        const formulas = {};
+        let failed = 0;
+        const base = "/services/data/v" + apiVersion + "/tooling";
+        this.logSoql("SELECT Id, Metadata FROM ValidationRule WHERE Id = '<each rule>'", true);
+        for (const part of chunk(list, COMPOSITE_SIZE)) {
+          const res = await sfConn.rest(base + "/composite", {method: "POST", body: {
+            allOrNone: false,
+            compositeRequest: part.map((r, i) => ({
+              method: "GET",
+              referenceId: "vr" + i,
+              url: base + "/query/?q=" + encodeURIComponent("SELECT Id, Metadata FROM ValidationRule WHERE Id = '" + r.Id + "'"),
+            })),
+          }});
+          const subs = (res && res.compositeResponse) || [];
+          part.forEach((r, i) => {
+            const sub = subs.find(x => x.referenceId === "vr" + i);
+            const rec = sub && sub.httpStatusCode === 200 && sub.body && sub.body.records && sub.body.records[0];
+            if (rec && rec.Metadata) formulas[r.Id] = rec.Metadata.errorConditionFormula || "";
+            else failed++;
+          });
+        }
+        const rules = list.map(r => {
+          const object = (r.EntityDefinition && r.EntityDefinition.QualifiedApiName) || "";
+          return {
+            id: r.Id,
+            name: r.ValidationName,
+            namespace: r.NamespacePrefix || "",
+            object,
+            active: !!r.Active,
+            errorMessage: r.ErrorMessage || "",
+            formula: formulas[r.Id],
+            link: this.sfLink + "/lightning/setup/ObjectManager/" + encodeURIComponent(object)
+              + "/ValidationRules/" + r.Id + "/view",
+          };
+        });
+        return {rules, failed};
+      })();
+      this.vrCache.catch(() => { this.vrCache = null; }); // allow a retry on the next selection
+    }
+    return this.vrCache;
+  }
+
+  async loadValidation(cp, alive) {
+    try {
+      const {rules, failed} = await this.scanValidationRules();
+      if (!alive()) return;
+      const apiName = apiNameOf(cp.NamespacePrefix, cp.DeveloperName);
+      const regex = cpRegex(PERMISSION_PREFIX, apiName);
+      // Inside its own package a namespaced CP can be referenced without prefix
+      const bareRegex = cp.NamespacePrefix ? cpRegex(PERMISSION_PREFIX, cp.DeveloperName) : null;
+      const rows = rules.filter(r => r.formula
+        && (regex.test(r.formula) || (bareRegex && r.namespace === cp.NamespacePrefix && bareRegex.test(r.formula))))
+        .sort((a, b) => a.object.localeCompare(b.object) || a.name.localeCompare(b.name));
+      this.setSection("validation", {status: "done", rows, error: "", failed, total: rules.length});
+    } catch (err) {
+      console.error(err);
+      if (!alive()) return;
+      this.setSection("validation", {status: "error", error: "Error loading validation rules (Tooling API): " + err.message});
+    }
+  }
+
+  // ----- Code (LWC, Aura, Visualforce) -----
+
+  /** Own source files of LWC, Aura and Visualforce. Loaded once per session. */
+  scanCode() {
+    if (!this.codeCache) {
+      this.codeCache = (async () => {
+        const setup = this.sfLink + "/lightning/setup/";
+        const sources = [
+          {type: "LWC", tooling: true,
+            soql: "SELECT Id, FilePath, Source, LightningComponentBundleId, LightningComponentBundle.NamespacePrefix"
+              + " FROM LightningComponentResource WHERE FilePath LIKE 'lwc/%.js'",
+            map: r => ({ns: r.LightningComponentBundle && r.LightningComponentBundle.NamespacePrefix,
+              name: (r.FilePath || "").replace(/^lwc\//, ""), source: r.Source,
+              link: setup + "LightningComponentBundles/page?address=%2F" + r.LightningComponentBundleId})},
+          {type: "Aura", tooling: true,
+            soql: "SELECT Id, DefType, Source, AuraDefinitionBundleId, AuraDefinitionBundle.DeveloperName,"
+              + " AuraDefinitionBundle.NamespacePrefix FROM AuraDefinition WHERE DefType IN ('COMPONENT', 'APPLICATION')",
+            map: r => ({ns: r.AuraDefinitionBundle && r.AuraDefinitionBundle.NamespacePrefix,
+              name: ((r.AuraDefinitionBundle && r.AuraDefinitionBundle.DeveloperName) || r.AuraDefinitionBundleId)
+                + (r.DefType === "APPLICATION" ? ".app" : ".cmp"), source: r.Source,
+              link: setup + "LightningComponentBundles/page?address=%2F" + r.AuraDefinitionBundleId})},
+          {type: "VF Page", tooling: false,
+            soql: "SELECT Id, Name, Markup FROM ApexPage WHERE NamespacePrefix = null",
+            map: r => ({name: r.Name, source: r.Markup, link: setup + "ApexPages/page?address=%2F" + r.Id})},
+          {type: "VF Component", tooling: false,
+            soql: "SELECT Id, Name, Markup FROM ApexComponent WHERE NamespacePrefix = null",
+            map: r => ({name: r.Name, source: r.Markup, link: setup + "ApexComponents/page?address=%2F" + r.Id})},
+        ];
+        const failedTypes = [];
+        const results = await Promise.all(sources.map(src => this.queryAll(src.soql, src.tooling)
+          .then(recs => recs.map(src.map).filter(f => !f.ns).map(f => Object.assign(f, {type: src.type})))
+          .catch(err => { console.warn(src.type + " scan failed", err); failedTypes.push(src.type + " (" + err.message + ")"); return []; })));
+        if (failedTypes.length === sources.length) throw new Error(failedTypes.join("; "));
+        return {files: [].concat(...results), failedTypes};
+      })();
+      this.codeCache.catch(() => { this.codeCache = null; });
+    }
+    return this.codeCache;
+  }
+
+  async loadCode(cp, alive) {
+    try {
+      const {files, failedTypes} = await this.scanCode();
+      if (!alive()) return;
+      const apiName = apiNameOf(cp.NamespacePrefix, cp.DeveloperName);
+      const lwc = cpRegex(LWC_PREFIX, apiName);
+      const perm = cpRegex(PERMISSION_PREFIX, apiName);
+      const rows = [];
+      for (const f of files) {
+        matchLines(f.source, f.type === "LWC" ? lwc : perm).forEach(m => {
+          rows.push({id: f.link + "#" + f.name + ":" + m.line, type: f.type, name: f.name, line: m.line, text: m.text, link: f.link});
+        });
+      }
+      rows.sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name) || a.line - b.line);
+      this.setSection("code", {status: "done", rows, error: "", failedTypes, total: files.length});
+    } catch (err) {
+      console.error(err);
+      if (!alive()) return;
+      this.setSection("code", {status: "error", error: "Error loading code: " + err.message});
+    }
+  }
+
   // ----- Filtering -----
 
   usageTypes() {
@@ -393,6 +577,7 @@ class Model {
     let rows = this.sections[tab].rows;
     if (tab === "users" && this.activeOnly) rows = rows.filter(r => r.active);
     if (tab === "usage" && this.usageType) rows = rows.filter(r => r.type === this.usageType);
+    if (tab === "validation" && this.activeRulesOnly) rows = rows.filter(r => r.active);
     return rows;
   }
 
@@ -402,6 +587,8 @@ class Model {
       case "permSets": return r.label + " " + r.apiName + " " + r.license;
       case "groups": return r.label + " " + r.apiName + " " + r.status + " " + r.viaPS.join(" ");
       case "users": return r.name + " " + r.username;
+      case "validation": return r.object + " " + r.name + " " + r.errorMessage;
+      case "code": return r.type + " " + r.name + " " + r.text;
       case "usage": return r.name + " " + r.type + " " + r.namespace;
       default: return "";
     }
@@ -422,14 +609,20 @@ class Model {
       case "profiles":
         return {header: ["Profile"], rows: rows.map(r => [r.name])};
       case "permSets":
-        return {header: ["Label", "API Name", "License"], rows: rows.map(r => [r.label, r.apiName, r.license])};
+        return {header: ["Label", "API Name", "License", "Session activation"],
+          rows: rows.map(r => [r.label, r.apiName, r.license, r.session ? "Yes" : "No"])};
       case "groups":
-        return {header: ["Label", "API Name", "Status", "Via Permission Set"],
-          rows: rows.map(r => [r.label, r.apiName, r.status, r.viaPS.join(" | ")])};
+        return {header: ["Label", "API Name", "Status", "Grants CP", "Session activation", "Via Permission Set"],
+          rows: rows.map(r => [r.label, r.apiName, r.status, r.granted ? "Yes" : "No", r.session ? "Yes" : "No", r.viaPS.join(" | ")])};
       case "users":
         return {header: ["Name", "Username", "Profile", "Access via", "Active", "Expiration date"],
           rows: rows.map(r => [r.name, r.username, r.profile,
             r.vias.map(v => v.kind + ": " + v.name).join(" | "), r.active ? "Yes" : "No", formatDate(r.expiration)])};
+      case "validation":
+        return {header: ["Object", "Rule", "Active", "Error message", "Formula"],
+          rows: rows.map(r => [r.object, r.name, r.active ? "Yes" : "No", r.errorMessage, r.formula])};
+      case "code":
+        return {header: ["Type", "Name", "Line", "Match"], rows: rows.map(r => [r.type, r.name, r.line, r.text])};
       case "usage":
         return {header: ["Name", "Type", "Namespace"], rows: rows.map(r => [r.name, r.type, r.namespace])};
       default:
@@ -484,6 +677,23 @@ function Mark({text, query}) {
     text.slice(0, i),
     h("mark", {}, text.slice(i, i + query.length)),
     text.slice(i + query.length));
+}
+
+/** Highlights every match of the regex (global) in the text. */
+function MarkAll({text, regex}) {
+  text = text || "";
+  const parts = [];
+  let last = 0;
+  let m;
+  regex.lastIndex = 0;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(h("mark", {key: "m" + m.index}, m[0]));
+    last = m.index + m[0].length;
+    if (m[0].length === 0) regex.lastIndex++;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return h("span", {}, ...parts);
 }
 
 class CPSearch extends React.Component {
@@ -615,7 +825,7 @@ function Table({headers, children}) {
 
 const VIA_BADGE = {Profile: "wc-badge-profile", PS: "wc-badge-ps", PSG: "wc-badge-psg"};
 
-function TabTable({tab, rows}) {
+function TabTable({tab, rows, model}) {
   switch (tab) {
     case "profiles":
       return h(Table, {headers: ["Profile"]},
@@ -623,15 +833,20 @@ function TabTable({tab, rows}) {
     case "permSets":
       return h(Table, {headers: ["Label", "API Name", "License"]},
         rows.map(r => h("tr", {key: r.id},
-          h("td", {}, h(LinkCell, {row: r, text: r.label})),
+          h("td", {}, h(LinkCell, {row: r, text: r.label}),
+            r.session && h("span", {className: "slds-m-left_x-small"}, h(Badge, {className: "wc-badge-session", text: "Session"}))),
           h("td", {}, h("code", {}, r.apiName)),
           h("td", {}, r.license))));
     case "groups":
       return h(Table, {headers: ["Label", "API Name", "Status", "Via Permission Set"]},
         rows.map(r => h("tr", {key: r.id},
-          h("td", {}, h(LinkCell, {row: r, text: r.label})),
+          h("td", {}, h(LinkCell, {row: r, text: r.label}),
+            r.session && h("span", {className: "slds-m-left_x-small"}, h(Badge, {className: "wc-badge-session", text: "Session"})),
+            !r.granted && h("span", {className: "slds-m-left_x-small", title: "Contains a permission set with this custom permission,"
+              + " but the group does not grant it (muted, or the group is not recalculated). Its users are not counted."},
+            h(Badge, {className: "wc-badge-warn", text: "Not granted"}))),
           h("td", {}, h("code", {}, r.apiName)),
-          h("td", {}, h(Badge, {className: r.status === "Updated" ? "wc-badge-on" : "wc-badge-off", text: r.status || "\u2013"})),
+          h("td", {}, h(Badge, {className: statusBadgeClass(r.status), text: r.status || "\u2013"})),
           h("td", {}, r.viaPS.map(p => h("span", {key: p, className: "wc-via"}, h(Badge, {className: "wc-badge-ps", text: p})))))));
     case "users":
       return h(Table, {headers: ["Name", "Username", "Profile", "Access via", "Active", "Expiration date"]},
@@ -643,6 +858,41 @@ function TabTable({tab, rows}) {
             h(Badge, {className: VIA_BADGE[v.kind], text: v.kind + ": " + v.name + (v.expiration ? " (until " + formatDate(v.expiration) + ")" : "")})))),
           h("td", {}, h(Badge, {className: r.active ? "wc-badge-on" : "wc-badge-off", text: r.active ? "Active" : "Inactive"})),
           h("td", {}, r.expiration ? formatDate(r.expiration) : "Never"))));
+    case "validation": {
+      const cp = model.selectedCP;
+      const regex = cpRegex(PERMISSION_PREFIX, apiNameOf(cp.NamespacePrefix, cp.DeveloperName), true);
+      const trs = [];
+      rows.forEach(r => {
+        const open = !!model.expanded[r.id];
+        trs.push(h("tr", {key: r.id},
+          h("td", {}, h("button", {
+            className: "slds-button wc-expand",
+            title: open ? "Hide formula" : "Show formula",
+            onClick: () => model.toggleExpanded(r.id),
+          }, open ? "\u25BE" : "\u25B8")),
+          h("td", {}, r.object),
+          h("td", {}, h(LinkCell, {row: r, text: r.name})),
+          h("td", {}, h(Badge, {className: r.active ? "wc-badge-on" : "wc-badge-off", text: r.active ? "Active" : "Inactive"})),
+          h("td", {className: "wc-wrap"}, r.errorMessage)));
+        if (open) {
+          trs.push(h("tr", {key: r.id + "-f", className: "wc-formula-row"},
+            h("td", {colSpan: 5}, h("pre", {className: "wc-formula"}, h(MarkAll, {text: r.formula, regex})))));
+        }
+      });
+      return h(Table, {headers: ["", "Object", "Rule", "Active", "Error message"]}, trs);
+    }
+    case "code": {
+      const cp = model.selectedCP;
+      const apiName = apiNameOf(cp.NamespacePrefix, cp.DeveloperName);
+      const lwc = cpRegex(LWC_PREFIX, apiName, true);
+      const perm = cpRegex(PERMISSION_PREFIX, apiName, true);
+      return h(Table, {headers: ["Type", "Name", "Line", "Match"]},
+        rows.map(r => h("tr", {key: r.id},
+          h("td", {}, r.type),
+          h("td", {}, h(LinkCell, {row: r, text: r.name})),
+          h("td", {}, r.line),
+          h("td", {className: "wc-wrap"}, h("code", {}, h(MarkAll, {text: r.text, regex: r.type === "LWC" ? lwc : perm}))))));
+    }
     case "usage":
       return h(Table, {headers: ["Name", "Type", "Namespace"]},
         rows.map(r => h("tr", {key: r.id},
@@ -659,6 +909,8 @@ const FILTER_PLACEHOLDER = {
   permSets: "Filter by label, API name or license",
   groups: "Filter by group or permission set",
   users: "Filter by name or username",
+  validation: "Filter by object, rule or message",
+  code: "Filter by type, name or code",
   usage: "Filter by name or type",
 };
 
@@ -667,6 +919,8 @@ const EMPTY_TEXT = {
   permSets: "No assignments.",
   groups: "No assignments.",
   users: "No users have this custom permission.",
+  validation: "No validation rules reference this custom permission.",
+  code: "No LWC, Aura or Visualforce code references this custom permission.",
   usage: "No references found.",
 };
 
@@ -677,7 +931,10 @@ class App extends React.Component {
     this.onFilter = this.onFilter.bind(this);
     this.onActiveOnly = this.onActiveOnly.bind(this);
     this.onUsageType = this.onUsageType.bind(this);
+    this.onActiveRulesOnly = this.onActiveRulesOnly.bind(this);
   }
+
+  onActiveRulesOnly(e) { this.model.activeRulesOnly = e.target.checked; this.model.didUpdate(); }
 
   onFilter(e) { this.model.filters[this.model.activeTab] = e.target.value; this.model.didUpdate(); }
   onActiveOnly(e) { this.model.activeOnly = e.target.checked; this.model.didUpdate(); }
@@ -720,6 +977,11 @@ class App extends React.Component {
         h("label", {className: "slds-checkbox__label", htmlFor: "wc-active-only"},
           h("span", {className: "slds-checkbox_faux"}),
           h("span", {className: "slds-form-element__label"}, "Active users only"))),
+      tab === "validation" && h("div", {className: "slds-checkbox"},
+        h("input", {type: "checkbox", id: "wc-active-rules", checked: model.activeRulesOnly, onChange: this.onActiveRulesOnly}),
+        h("label", {className: "slds-checkbox__label", htmlFor: "wc-active-rules"},
+          h("span", {className: "slds-checkbox_faux"}),
+          h("span", {className: "slds-form-element__label"}, "Active rules only"))),
       tab === "usage" && h("select", {className: "slds-select wc-select", value: model.usageType, onChange: this.onUsageType},
         h("option", {value: ""}, "All types"),
         model.usageTypes().map(t => h("option", {key: t, value: t}, t))),
@@ -748,21 +1010,33 @@ class App extends React.Component {
   renderTabBody(tab, rows) {
     const model = this.model;
     const section = model.sections[tab];
-    if (section.status === "loading") return h("div", {className: "wc-empty"}, "Loading\u2026");
+    if (section.status === "loading") {
+      const text = tab === "validation" ? "Scanning validation rules\u2026"
+        : tab === "code" ? "Scanning LWC, Aura and Visualforce code\u2026" : "Loading\u2026";
+      return h("div", {className: "wc-empty"}, text);
+    }
     if (section.status === "error") {
       return h("div", {className: "slds-notify slds-notify_alert slds-theme_error", role: "alert"}, section.error);
     }
     const base = model.baseRows(tab);
     return h("div", {},
       tab === "usage" && h("div", {className: "wc-note"},
-        "Only references that Salesforce tracks as dependencies are shown, such as $Permission in formulas, validation rules and flows. "
-        + "Text references in Apex (e.g. FeatureManagement.checkPermission('Name')) may not appear."),
+        "Only references that Salesforce tracks as dependencies are shown. $Permission in validation rules and references in code "
+        + "are usually not tracked: see the Validation Rules and Code tabs. Apex (FeatureManagement.checkPermission) is not scanned."),
+      tab === "validation" && h("div", {className: "wc-note"},
+        "Formulas of " + (section.total || 0) + " validation rules scanned for $Permission." + apiNameOf(model.selectedCP.NamespacePrefix, model.selectedCP.DeveloperName)
+        + ". References inside formula comments are also listed."
+        + (section.failed ? " " + section.failed + " rules could not be read and were skipped." : "")),
+      tab === "code" && h("div", {className: "wc-note"},
+        (section.total || 0) + " own files scanned (LWC JavaScript, Aura markup, Visualforce pages and components). "
+        + "Apex is not scanned. References inside comments are also listed."
+        + (section.failedTypes && section.failedTypes.length ? " Not scanned: " + section.failedTypes.join(", ") + "." : "")),
       tab === "usage" && section.limitReached && h("div", {className: "wc-note"},
         "The API returned its limit of " + USAGE_LIMIT + " rows: the list may be incomplete."),
       section.rows.length === 0 && h("div", {className: "wc-empty"}, EMPTY_TEXT[tab]),
       section.rows.length > 0 && base.length === 0 && tab === "users" && h("div", {className: "wc-empty"}, "No active users. Uncheck \u201cActive users only\u201d to see inactive ones."),
       base.length > 0 && rows.length === 0 && h("div", {className: "wc-empty"}, "No rows match the filter."),
-      rows.length > 0 && h(TabTable, {tab, rows})
+      rows.length > 0 && h(TabTable, {tab, rows, model})
     );
   }
 
