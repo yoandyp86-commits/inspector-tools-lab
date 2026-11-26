@@ -445,20 +445,21 @@ class Model {
         const formulas = {};
         let failed = 0;
         const base = "/services/data/v" + apiVersion + "/tooling";
-        this.logSoql("SELECT Id, Metadata FROM ValidationRule WHERE Id = '<each rule>'", true);
+        // Composite allows 25 subrequests but only 5 queries: retrieve each rule as a record instead
+        this.logSoql("GET /tooling/sobjects/ValidationRule/<each rule> (Metadata.errorConditionFormula)", true);
         for (const part of chunk(list, COMPOSITE_SIZE)) {
           const res = await sfConn.rest(base + "/composite", {method: "POST", body: {
             allOrNone: false,
             compositeRequest: part.map((r, i) => ({
               method: "GET",
               referenceId: "vr" + i,
-              url: base + "/query/?q=" + encodeURIComponent("SELECT Id, Metadata FROM ValidationRule WHERE Id = '" + r.Id + "'"),
+              url: base + "/sobjects/ValidationRule/" + r.Id,
             })),
           }});
           const subs = (res && res.compositeResponse) || [];
           part.forEach((r, i) => {
             const sub = subs.find(x => x.referenceId === "vr" + i);
-            const rec = sub && sub.httpStatusCode === 200 && sub.body && sub.body.records && sub.body.records[0];
+            const rec = sub && sub.httpStatusCode === 200 && sub.body;
             if (rec && rec.Metadata) formulas[r.Id] = rec.Metadata.errorConditionFormula || "";
             else failed++;
           });
